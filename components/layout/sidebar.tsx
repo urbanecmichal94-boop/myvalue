@@ -3,11 +3,12 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { LayoutDashboard, Plus, Settings, Wallet, BarChart2, Calculator, Building2, TrendingUp } from 'lucide-react'
+import { LayoutDashboard, Plus, Settings, Wallet, BarChart2, Calculator, Building2, TrendingUp, LogOut } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import { useSections } from '@/lib/context/sections-context'
 import { generateId } from '@/lib/storage'
+import { createClient } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -29,6 +30,13 @@ export function Sidebar() {
   const router = useRouter()
   const { sections, saveSection } = useSections()
   const t = useTranslations('sidebar')
+
+  async function handleLogout() {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    router.push('/login')
+    router.refresh()
+  }
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [customName, setCustomName] = useState('')
@@ -271,8 +279,8 @@ export function Sidebar() {
         </Dialog>
       </nav>
 
-      {/* Nastavení */}
-      <div className="border-t pt-2">
+      {/* Nastavení + odhlášení */}
+      <div className="border-t pt-2 space-y-0.5">
         <Link
           href="/settings"
           className={cn(
@@ -285,6 +293,13 @@ export function Sidebar() {
           <Settings className="h-4 w-4 shrink-0" />
           {t('settings')}
         </Link>
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        >
+          <LogOut className="h-4 w-4 shrink-0" />
+          {t('logout')}
+        </button>
       </div>
     </aside>
   )
