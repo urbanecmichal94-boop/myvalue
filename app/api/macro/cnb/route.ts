@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { upsertMacroRows } from '@/lib/supabase'
+import { upsertMacroRows } from '@/lib/supabase-server'
 
 // ČNB denní kurzy — veřejné, bez API klíče
 // https://www.cnb.cz/cs/financni_trhy/devizovy_trh/kurzy_devizoveho_trhu/denni_kurz.txt

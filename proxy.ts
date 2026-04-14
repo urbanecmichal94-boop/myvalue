@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 // Veřejné cesty — dostupné bez přihlášení
 const PUBLIC_PATHS = ['/', '/login', '/register']
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(

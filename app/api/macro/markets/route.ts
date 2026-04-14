@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import YahooFinance from 'yahoo-finance2'
-import { upsertMacroRows } from '@/lib/supabase'
+import { upsertMacroRows } from '@/lib/supabase-server'
 const yahooFinance = new YahooFinance()
 
 // Tickery pro makro data z Yahoo Finance
