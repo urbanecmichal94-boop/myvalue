@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslations } from 'next-intl'
 import { ShieldCheck, Clock, AlertTriangle, Info, ChevronRight } from 'lucide-react'
 import { type AssetWithValue } from '@/types'
-import { getTransactions } from '@/lib/storage'
+import { getTransactions } from '@/lib/db/transactions'
 import { formatCurrency } from '@/lib/format'
 import type { Currency } from '@/types'
+import type { Transaction } from '@/types'
 
 const THREE_YEARS_MS = 3 * 365.25 * 24 * 60 * 60 * 1000
 const ONE_YEAR_MS   = 365.25 * 24 * 60 * 60 * 1000
@@ -43,13 +44,13 @@ interface AssetTaxRow {
 
 // ── Logika ────────────────────────────────────────────────────────────────────
 
-function buildAssetRows(assets: AssetWithValue[]): AssetTaxRow[] {
+function buildAssetRows(assets: AssetWithValue[], allTxs: Transaction[]): AssetTaxRow[] {
   const now = Date.now()
 
   return assets
     .filter((a) => a.totalQuantity > 0)
     .map((a) => {
-      const txs = getTransactions(a.id)
+      const txs = allTxs.filter((t) => t.asset_id === a.id)
       const buys = txs
         .filter((t) => t.type === 'buy')
         .sort((x, y) => x.date.localeCompare(y.date))
@@ -100,8 +101,13 @@ interface TaxOverviewProps {
 export function TaxOverview({ assets, displayCurrency }: TaxOverviewProps) {
   const t = useTranslations('taxes')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [allTxs, setAllTxs] = useState<Transaction[]>([])
 
-  const rows = buildAssetRows(assets).sort((a, b) => {
+  useEffect(() => {
+    getTransactions().then(setAllTxs).catch(console.error)
+  }, [])
+
+  const rows = buildAssetRows(assets, allTxs).sort((a, b) => {
     // Nejbližší datum osvobození nahoře, plně osvobozené dolů
     const aMin = Math.min(...a.lots.filter(l => !l.exempt && l.daysRemaining !== null).map(l => l.daysRemaining!))
     const bMin = Math.min(...b.lots.filter(l => !l.exempt && l.daysRemaining !== null).map(l => l.daysRemaining!))

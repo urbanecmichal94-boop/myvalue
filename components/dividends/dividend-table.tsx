@@ -5,7 +5,9 @@ import { useTranslations } from 'next-intl'
 import { RotateCcw } from 'lucide-react'
 import type { AssetWithValue, Currency } from '@/types'
 import type { CurrencyCache, DividendEntry, DividendFrequency, DividendCacheEntry } from '@/lib/storage'
-import { getDividendCache, saveDividendCacheEntry, isDividendCacheValid, getTransactions } from '@/lib/storage'
+import { getDividendCache, saveDividendCacheEntry, isDividendCacheValid } from '@/lib/storage'
+import { getTransactions } from '@/lib/db/transactions'
+import type { Transaction } from '@/types'
 import type { DividendApiResponse } from '@/app/api/dividends/route'
 
 // ─── Typy ─────────────────────────────────────────────────────────────────────
@@ -100,7 +102,8 @@ export function DividendTable({ assets, displayCurrency, rates }: DividendTableP
         )
 
         // Total řádek (v zobrazovací měně)
-        const monthly    = computeMonthlyDividends(assets, allEntries, displayCurrency, rates)
+        const allTxs = await getTransactions()
+        const monthly    = computeMonthlyDividends(assets, allEntries, displayCurrency, rates, allTxs)
         const yearly     = buildYearlyDividends(monthly)
         const totals     = computeYearlyTotals(yearly)
         const totalMonths = yearly[CURRENT_YEAR] ?? {}
@@ -399,6 +402,7 @@ function computeMonthlyDividends(
   entries: Array<{ asset: AssetWithValue; entry: DividendCacheEntry }>,
   displayCurrency: Currency,
   rates: CurrencyCache,
+  allTxs: Transaction[],
 ): MonthlyDividends {
   const result: MonthlyDividends = {}
   const today       = new Date().toISOString().split('T')[0]
@@ -420,7 +424,7 @@ function computeMonthlyDividends(
   // Uživatelské dividendové transakce (bez Yahoo dat)
   for (const asset of assets) {
     if (assetsWithYahoo.has(asset.id)) continue
-    const txs = getTransactions(asset.id)
+    const txs = allTxs.filter((tx) => tx.asset_id === asset.id)
     for (const tx of txs) {
       if (tx.type !== 'dividend') continue
       if (tx.date < startOfYear || tx.date > today) continue

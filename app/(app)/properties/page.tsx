@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Plus, Building2, Home, MapPin, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { getProperties } from '@/lib/property-storage'
+import { getProperties } from '@/lib/db/properties'
 import { PROPERTY_TYPE_LABELS, type Property } from '@/types/property'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -156,7 +156,7 @@ export default function PropertiesPage() {
   const [properties, setProperties] = useState<Property[]>([])
 
   useEffect(() => {
-    setProperties(getProperties())
+    getProperties().then(setProperties).catch(console.error)
   }, [])
 
   const totalValue    = properties.reduce((s, p) => s + p.currentValue, 0)

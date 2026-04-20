@@ -21,6 +21,7 @@ interface PerformanceTableProps {
   template: SectionTemplate
   displayCurrency: Currency
   rates: CurrencyCache
+  firstPurchaseMonth?: string   // 'YYYY-MM' — zobrazovat statistiky až od tohoto měsíce
 }
 
 const TEMPLATE_TO_HISTORY_TYPE: Partial<Record<SectionTemplate, string>> = {
@@ -31,7 +32,7 @@ const TEMPLATE_TO_HISTORY_TYPE: Partial<Record<SectionTemplate, string>> = {
 
 // ─── Komponenta ───────────────────────────────────────────────────────────────
 
-export function PerformanceTable({ assets, template, displayCurrency, rates }: PerformanceTableProps) {
+export function PerformanceTable({ assets, template, displayCurrency, rates, firstPurchaseMonth }: PerformanceTableProps) {
   const t = useTranslations('performanceTable')
 
   const [yearlyReturns, setYearlyReturns] = useState<YearlyReturns | null>(null)
@@ -55,7 +56,13 @@ export function PerformanceTable({ assets, template, displayCurrency, rates }: P
       setError(false)
       try {
         const tickers  = onlineAssets.map((a) => a.ticker!).join(',')
-        const from     = '2025-12-01'
+        // Maximálně zpět do 2024-01; dříve nezobrazujeme
+        const MIN_MONTH = '2024-01'
+        const effectiveFirst = firstPurchaseMonth && firstPurchaseMonth > MIN_MONTH
+          ? firstPurchaseMonth
+          : MIN_MONTH
+        // Začít o měsíc dříve (potřebujeme baseline pro výpočet výnosu prvního měsíce)
+        const from = prevMonthDate(effectiveFirst)
         const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0]
         const res = await fetch(
           `/api/history?tickers=${encodeURIComponent(tickers)}&from=${from}&to=${tomorrow}&type=${historyType}`
@@ -63,7 +70,13 @@ export function PerformanceTable({ assets, template, displayCurrency, rates }: P
         if (!res.ok) throw new Error('HTTP ' + res.status)
 
         const data = await res.json() as { history: Record<string, Record<string, number>> }
-        const monthlyValues = computeMonthlyValuesFromHistory(onlineAssets, data.history, rates, displayCurrency)
+
+        // Celkový cost basis v zobrazovací měně — použijeme jako syntetický baseline pro první měsíc
+        const purchaseBasis = onlineAssets.reduce((s, a) => s + a.totalInvestedDisplay, 0)
+
+        const monthlyValues = computeMonthlyValuesFromHistory(
+          onlineAssets, data.history, rates, displayCurrency, effectiveFirst, purchaseBasis
+        )
         const returns = computeReturns(monthlyValues)
         setYearlyReturns(returns)
       } catch (e) {
@@ -138,4 +151,11 @@ export function PerformanceTable({ assets, template, displayCurrency, rates }: P
       </table>
     </div>
   )
+}
+
+// Vrátí datum prvního dne měsíce PŘED daným 'YYYY-MM' ve formátu 'YYYY-MM-DD'
+function prevMonthDate(yyyyMm: string): string {
+  const [y, m] = yyyyMm.split('-').map(Number)
+  const prev = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`
+  return `${prev}-01`
 }

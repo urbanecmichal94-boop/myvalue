@@ -13,6 +13,7 @@ function toSection(row: Record<string, unknown>): Section {
     id:         row.id as string,
     name:       row.name as string,
     template:   row.template as Section['template'],
+    color:      row.color as string | undefined,
     created_at: row.created_at as string,
   }
 }

@@ -2,19 +2,22 @@ import Link from 'next/link'
 import { getTranslations } from 'next-intl/server'
 
 export default async function CalculatorsPage() {
-  const t  = await getTranslations('calculators')
-  const tm = await getTranslations('calculators.mortgage')
-  const ts = await getTranslations('calculators.salary')
-  const tc = await getTranslations('calculators.compound')
+  const t   = await getTranslations('calculators')
+  const tm  = await getTranslations('calculators.mortgage')
+  const ts  = await getTranslations('calculators.salary')
+  const tc  = await getTranslations('calculators.compound')
+  const tp  = await getTranslations('calculators.ppm')
+  const tpa = await getTranslations('calculators.parental')
 
   const calcs = [
-    { slug: 'mortgage', name: tm('name'), desc: tm('desc') },
-    { slug: 'salary',   name: ts('name'), desc: ts('desc') },
-    { slug: 'compound', name: tc('name'), desc: tc('desc') },
-    { slug: 'pension',      name: 'Penzijní připojištění (DPS)', desc: 'Simulace DPS s státním příspěvkem, poplatky fondu a porovnáním s ETF alternativou' },
-    { slug: 'rent-vs-buy',          name: 'Nájem vs koupě nemovitosti',        desc: 'Srovnání čisté hodnoty majetku — hypotéka vs nájem s investováním rozdílu a bodu zlomu' },
-    { slug: 'investment-property',  name: 'Investiční nemovitost',             desc: 'Cashflow, Cap rate, Cash-on-cash a čistá hodnota — s volbou daňové strategie (paušál / odpisy)' },
-    { slug: 'maternity',            name: 'Mateřská a rodičovská',             desc: 'PPM výpočet z hrubé mzdy + rodičovský příspěvek — srovnání 2/3/4 roky RD a ušlý příjem' },
+    { slug: 'mortgage',           name: tm('name'),   desc: tm('desc') },
+    { slug: 'salary',             name: ts('name'),   desc: ts('desc') },
+    { slug: 'compound',           name: tc('name'),   desc: tc('desc') },
+    { slug: 'pension',            name: 'Penzijní připojištění (DPS)',     desc: 'Simulace DPS s státním příspěvkem, poplatky fondu a porovnáním s ETF alternativou' },
+    { slug: 'rent-vs-buy',        name: 'Nájem vs koupě nemovitosti',      desc: 'Srovnání čisté hodnoty majetku — hypotéka vs nájem s investováním rozdílu a bodu zlomu' },
+    { slug: 'investment-property',name: 'Investiční nemovitost',           desc: 'Cashflow, Cap rate, Cash-on-cash a čistá hodnota — s volbou daňové strategie (paušál / odpisy)' },
+    { slug: 'ppm',                name: tp('name'),   desc: tp('desc') },
+    { slug: 'parental',           name: tpa('name'),  desc: tpa('desc') },
   ]
 
   return (

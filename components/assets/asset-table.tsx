@@ -8,13 +8,15 @@ import { ChevronUp, ChevronDown, ChevronsUpDown, Settings2, GripVertical, AlertT
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
-  getColumnConfig,
-  saveColumnConfig,
-  resetColumnConfig,
   getDividendCache,
   type ColumnState,
   type CurrencyCache,
 } from '@/lib/storage'
+import {
+  getColumnConfig,
+  saveColumnConfig,
+  resetColumnConfig,
+} from '@/lib/db/settings'
 import {
   type AssetWithValue,
   type Currency,
@@ -282,7 +284,7 @@ export function AssetTable({ assets, displayCurrency, totalSectionValue, rates }
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    setColumnStates(getColumnConfig())
+    getColumnConfig().then(setColumnStates).catch(console.error)
   }, [])
 
   // Výpočet YoC per aktivum z dividend cache (TTM)
@@ -362,13 +364,14 @@ export function AssetTable({ assets, displayCurrency, totalSectionValue, rates }
   function toggleColumn(id: string) {
     const updated = columnStates.map((cs) => cs.id === id ? { ...cs, visible: !cs.visible } : cs)
     setColumnStates(updated)
-    saveColumnConfig(updated)
+    saveColumnConfig(updated).catch(console.error)
   }
 
   function handleReset() {
     resetColumnConfig()
-    setColumnStates(getColumnConfig())
-    setSortCol(null)
+      .then(() => getColumnConfig())
+      .then((cols) => { setColumnStates(cols); setSortCol(null) })
+      .catch(console.error)
   }
 
   // Drag & drop přeuspořádání v pickeru
@@ -391,7 +394,7 @@ export function AssetTable({ assets, displayCurrency, totalSectionValue, rates }
     const [removed] = newStates.splice(fromIdx, 1)
     newStates.splice(toIdx, 0, removed)
     setColumnStates(newStates)
-    saveColumnConfig(newStates)
+    saveColumnConfig(newStates).catch(console.error)
     setDraggedId(null)
     setDragOverId(null)
   }

@@ -12,10 +12,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useSettings } from '@/lib/context/settings-context'
 import { useSections } from '@/lib/context/sections-context'
 import {
-  getAssets,
-  getTransactions,
-  deleteAsset,
-  saveAsset,
   getPriceCache,
   savePriceCache,
   getCurrencyCache,
@@ -31,6 +27,8 @@ import {
   type CurrencyRateHistory,
   type PriceCacheEntry,
 } from '@/lib/storage'
+import { getAssets, saveAsset, deleteAsset } from '@/lib/db/assets'
+import { getTransactions } from '@/lib/db/transactions'
 import { calculateAssetValue, priceToUsd } from '@/lib/calculations'
 import {
   AUTO_ASSET_TYPES,
@@ -46,12 +44,20 @@ import { AssetTable } from '@/components/assets/asset-table'
 import { PerformanceTable } from '@/components/performance/performance-table'
 import { DividendTable } from '@/components/dividends/dividend-table'
 import { TaxOverview } from '@/components/taxes/tax-overview'
+import { CashSection } from '@/components/cash/cash-section'
 
 const TEMPLATE_TO_HISTORY_TYPE: Partial<Record<SectionTemplate, string>> = {
   stocks:    'stock',
   crypto:    'crypto',
   commodity: 'commodity',
 }
+
+const SECTION_COLORS = [
+  '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7',
+  '#ec4899', '#ef4444', '#f97316', '#f59e0b',
+  '#22c55e', '#10b981', '#14b8a6', '#06b6d4',
+  '#6b7280', '#1f2937',
+]
 
 export default function SectionPage() {
   const { id } = useParams<{ id: string }>()
@@ -73,17 +79,12 @@ export default function SectionPage() {
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
+  const [colorPickerOpen, setColorPickerOpen] = useState(false)
+  const colorPickerRef = useRef<HTMLDivElement>(null)
+  const [firstPurchaseMonth, setFirstPurchaseMonth] = useState<string | undefined>(undefined)
 
   const loadData = useCallback(async (forceRefresh = false) => {
-    const assets = getAssets(id)
-    if (assets.length === 0) {
-      setAssetsWithValues([])
-      setLoading(false)
-      setRefreshing(false)
-      return
-    }
-
-    // ── Kurzy měn ─────────────────────────────────────────────────────────
+    // ── Kurzy měn — načíst vždy (potřebuje i cash sekce) ─────────────────
     let rates: CurrencyCache
     const cachedRates = getCurrencyCache()
     if (cachedRates && isCurrencyCacheValid(cachedRates) && !forceRefresh) {
@@ -98,6 +99,15 @@ export default function SectionPage() {
         rates = cachedRates ?? { eurCzk: 25.0, eurUsd: 1.08, rates: {}, updatedAt: new Date().toISOString() }
       }
     }
+    setRates(rates)
+
+    const assets = await getAssets(id)
+    if (assets.length === 0) {
+      setAssetsWithValues([])
+      setLoading(false)
+      setRefreshing(false)
+      return
+    }
 
     // ── Historické kurzy měn (pro cost basis) ─────────────────────────────
     let rateHistory: CurrencyRateHistory | null = null
@@ -106,7 +116,7 @@ export default function SectionPage() {
       rateHistory = cachedRateHistory
     } else {
       try {
-        const allTxs = getTransactions()
+        const allTxs = await getTransactions()
         if (allTxs.length > 0) {
           const earliest = allTxs.reduce((min, tx) => tx.date < min ? tx.date : min, allTxs[0].date)
           const fromDate = earliest.slice(0, 7) + '-01'
@@ -183,8 +193,19 @@ export default function SectionPage() {
     if (historyChanged) savePriceHistory(history)
 
     // ── Spočítat hodnoty ──────────────────────────────────────────────────
+    const allTxsForCalc = await getTransactions()
+
+    // Nejstarší datum nákupu v této sekci
+    const sectionAssetIds = new Set(assets.map((a) => a.id))
+    const buyDates = allTxsForCalc
+      .filter((tx) => sectionAssetIds.has(tx.asset_id) && tx.type === 'buy')
+      .map((tx) => tx.date)
+    if (buyDates.length > 0) {
+      setFirstPurchaseMonth(buyDates.sort()[0].slice(0, 7))
+    }
+
     const result: AssetWithValue[] = assets.map((asset) => {
-      const txs = getTransactions(asset.id)
+      const txs = allTxsForCalc.filter((tx) => tx.asset_id === asset.id)
       const cachedEntry: PriceCacheEntry | undefined = asset.ticker ? newPriceCache[asset.ticker] : undefined
       const priceUsd = cachedEntry?.priceUsd ?? null
       const dailyChangePct = cachedEntry?.dailyChangePct ?? null
@@ -194,7 +215,6 @@ export default function SectionPage() {
     })
 
     setAssetsWithValues(result)
-    setRates(rates)
     setLoading(false)
     setRefreshing(false)
 
@@ -240,7 +260,7 @@ export default function SectionPage() {
 
   // Načíst metadata (sector/industry/country) jednorázově pro stock aktiva která je nemají
   const loadMeta = useCallback(async () => {
-    const assets = getAssets(id)
+    const assets = await getAssets(id)
     const missing = assets.filter(
       (a) => (a.type === 'stock' || a.type === 'etf') && a.ticker && !a.sector
     )
@@ -253,7 +273,7 @@ export default function SectionPage() {
       for (const asset of missing) {
         const m = data.meta[asset.ticker!]
         if (!m) continue
-        saveAsset({ ...asset, sector: m.sector, industry: m.industry, country: m.country })
+        saveAsset({ ...asset, sector: m.sector, industry: m.industry, country: m.country }).catch(console.error)
       }
       setAssetsWithValues((prev) => prev.map((av) => {
         const m = data.meta[av.ticker ?? '']
@@ -284,9 +304,8 @@ export default function SectionPage() {
     loadData(true).then(() => toast.success(t('pricesUpdated')))
   }
 
-  function handleExport() {
-    const assets = getAssets(id)
-    const transactions = getTransactions()
+  async function handleExport() {
+    const [assets, transactions] = await Promise.all([getAssets(id), getTransactions()])
     const sectionTxs = transactions.filter((tx) => assets.some((a) => a.id === tx.asset_id))
     if (sectionTxs.length === 0) { toast.warning(t('noDataToExport')); return }
     const csv = transactionsToCsv(assets, sectionTxs)
@@ -311,9 +330,27 @@ export default function SectionPage() {
     setRenaming(false)
   }
 
-  function handleDeleteSection() {
+  useEffect(() => {
+    if (!colorPickerOpen) return
+    function handleOutside(e: MouseEvent) {
+      if (!colorPickerRef.current?.contains(e.target as Node)) {
+        setColorPickerOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [colorPickerOpen])
+
+  function handleColorChange(color: string) {
     if (!section) return
-    const assets = getAssets(id)
+    saveSection({ ...section, color })
+    setColorPickerOpen(false)
+    toast.success(t('colorChanged'))
+  }
+
+  async function handleDeleteSection() {
+    if (!section) return
+    const assets = await getAssets(id)
     if (assets.length > 0) {
       toast.error(t('removeAssetsFirst'))
       return
@@ -326,7 +363,7 @@ export default function SectionPage() {
 
   function handleDeleteAsset(assetId: string, assetName: string) {
     if (!confirm(t('confirmDeleteAsset', { name: assetName }))) return
-    deleteAsset(assetId)
+    deleteAsset(assetId).catch(console.error)
     toast.success(t('assetDeleted'))
     loadData()
   }
@@ -362,28 +399,50 @@ export default function SectionPage() {
           <ChevronLeft className="mr-1 h-4 w-4" />Dashboard
         </Link>
         <div className="flex gap-2">
-          {isAuto && (
+          {isAuto && section.template !== 'savings' && (
             <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
               <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
               {t('update')}
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={handleExport} disabled={assetsWithValues.length === 0}>
-            <Download className="mr-2 h-4 w-4" />{tCommon('exportCsv')}
-          </Button>
-          <Link href={`/assets/add?section=${id}`} className={buttonVariants({ size: 'sm' })}>
-            <Plus className="mr-2 h-4 w-4" />{t('addAsset')}
-          </Link>
+          {section.template !== 'savings' && (
+            <Button variant="outline" size="sm" onClick={handleExport} disabled={assetsWithValues.length === 0}>
+              <Download className="mr-2 h-4 w-4" />{tCommon('exportCsv')}
+            </Button>
+          )}
+          {section.template !== 'savings' && (
+            <Link href={`/assets/add?section=${id}`} className={buttonVariants({ size: 'sm' })}>
+              <Plus className="mr-2 h-4 w-4" />{t('addAsset')}
+            </Link>
+          )}
         </div>
       </div>
 
       {/* Hlavička sekce */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          <span
-            className="w-4 h-4 rounded-full shrink-0 mt-1"
-            style={{ backgroundColor: TEMPLATE_COLORS[section.template] }}
-          />
+          <div ref={colorPickerRef} className="relative shrink-0 mt-1">
+            <button
+              onClick={() => setColorPickerOpen((o) => !o)}
+              className="w-4 h-4 rounded-full hover:ring-2 hover:ring-offset-1 hover:ring-ring transition-shadow focus:outline-none"
+              style={{ backgroundColor: section.color ?? TEMPLATE_COLORS[section.template] }}
+              title={t('changeColor')}
+            />
+            {colorPickerOpen && (
+              <div className="absolute left-0 top-6 z-50 rounded-lg border bg-popover p-2.5 shadow-md">
+                <div className="grid grid-cols-7 gap-1.5">
+                  {SECTION_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => handleColorChange(c)}
+                      className="w-5 h-5 rounded-full hover:ring-2 hover:ring-offset-1 hover:ring-ring transition-shadow focus:outline-none"
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           <div>
             {renaming ? (
               <div className="flex items-center gap-2">
@@ -422,8 +481,23 @@ export default function SectionPage() {
         </Button>
       </div>
 
+      {/* Cash/úspory sekce */}
+      {section.template === 'savings' && rates && (
+        <CashSection
+          sectionId={id}
+          displayCurrency={settings.displayCurrency}
+          rates={rates}
+          sectionColor={section.color ?? TEMPLATE_COLORS[section.template]}
+        />
+      )}
+      {section.template === 'savings' && !rates && (
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => <div key={i} className="h-16 w-full rounded-md bg-muted animate-pulse" />)}
+        </div>
+      )}
+
       {/* Statistiky */}
-      {!loading && assetsWithValues.length > 0 && (
+      {section.template !== 'savings' && !loading && assetsWithValues.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <Card className="sm:col-span-2">
             <CardHeader className="pb-1 pt-3 px-4">
@@ -500,8 +574,8 @@ export default function SectionPage() {
         </div>
       )}
 
-      {/* Záložky */}
-      <div>
+      {/* Záložky — jen pro ne-savings sekce */}
+      {section.template !== 'savings' && <div>
         <div className="flex gap-1 border-b mb-4">
           <button
             onClick={() => setActiveTab('assets')}
@@ -569,6 +643,7 @@ export default function SectionPage() {
               template={section.template}
               displayCurrency={settings.displayCurrency}
               rates={rates}
+              firstPurchaseMonth={firstPurchaseMonth}
             />
           </div>
         )}
@@ -589,7 +664,7 @@ export default function SectionPage() {
             displayCurrency={settings.displayCurrency}
           />
         )}
-      </div>
+      </div>}
     </div>
   )
 }

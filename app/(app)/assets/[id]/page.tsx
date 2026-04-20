@@ -29,12 +29,6 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useSettings } from '@/lib/context/settings-context'
 import {
-  getAssets,
-  getTransactions,
-  saveTransaction,
-  saveAsset,
-  deleteTransaction,
-  deleteAsset,
   getPriceCache,
   savePriceCache,
   getCurrencyCache,
@@ -48,6 +42,8 @@ import {
   type CurrencyCache,
   type CurrencyRateHistory,
 } from '@/lib/storage'
+import { getAssets, saveAsset, deleteAsset } from '@/lib/db/assets'
+import { getTransactions, saveTransaction, deleteTransaction } from '@/lib/db/transactions'
 import { calculateAssetValue, priceToUsd } from '@/lib/calculations'
 import {
   ASSET_TYPE_LABELS,
@@ -103,12 +99,12 @@ export default function AssetDetailPage() {
   const [editNotes, setEditNotes] = useState('')
 
   const loadData = useCallback(async () => {
-    const assets = getAssets()
+    const assets = await getAssets()
     const found = assets.find((a) => a.id === id)
     if (!found) { router.push('/dashboard'); return }
     setAsset(found)
 
-    const txs = getTransactions(id)
+    const txs = await getTransactions(id)
     setTransactions([...txs].sort((a, b) => b.date.localeCompare(a.date)))
 
     let currentRates: CurrencyCache
@@ -134,7 +130,7 @@ export default function AssetDetailPage() {
       rateHistory = cachedRateHistory
     } else {
       try {
-        const allTxs = getTransactions()
+        const allTxs = await getTransactions()
         if (allTxs.length > 0) {
           const earliest = allTxs.reduce((min, tx) => tx.date < min ? tx.date : min, allTxs[0].date)
           const fromDate = earliest.slice(0, 7) + '-01'
@@ -220,7 +216,7 @@ export default function AssetDetailPage() {
       currency: txCurrency,
       notes: txNotes.trim() || undefined,
       created_at: new Date().toISOString(),
-    })
+    }).catch(console.error)
 
     toast.success(t('transactionAdded'))
     setDialogOpen(false)
@@ -234,7 +230,7 @@ export default function AssetDetailPage() {
   }
 
   function handleDeleteTransaction(txId: string) {
-    deleteTransaction(txId)
+    deleteTransaction(txId).catch(console.error)
     toast.success(t('transactionDeleted'))
     loadData()
   }
@@ -264,7 +260,7 @@ export default function AssetDetailPage() {
       price: Number(editPrice),
       currency: editCurrency,
       notes: editNotes.trim() || undefined,
-    })
+    }).catch(console.error)
     toast.success(t('transactionUpdated'))
     setEditDialogOpen(false)
     setEditingTx(null)
@@ -281,7 +277,7 @@ export default function AssetDetailPage() {
   function handleDeleteAsset() {
     if (!asset) return
     if (!confirm(t('confirmDeleteAsset', { name: asset.name }))) return
-    deleteAsset(asset.id)
+    deleteAsset(asset.id).catch(console.error)
     toast.success(t('assetDeleted'))
     router.push('/dashboard')
   }
@@ -289,7 +285,7 @@ export default function AssetDetailPage() {
   function handleSaveTvSymbol() {
     if (!asset) return
     const updated = { ...asset, tradingview_symbol: tvSymbolEdit.trim() || undefined }
-    saveAsset(updated)
+    saveAsset(updated).catch(console.error)
     setAsset(updated)
     setTvSymbolEditing(false)
     toast.success(t('tvSymbolSaved'))
@@ -313,7 +309,7 @@ export default function AssetDetailPage() {
       {/* Zpět + akce */}
       <div className="flex items-center justify-between">
         <Link href={backHref} className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
-          <ChevronLeft className="mr-1 h-4 w-4" />Zpět
+          <ChevronLeft className="mr-1 h-4 w-4" />{tCommon('back')}
         </Link>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={handleExport} disabled={transactions.length === 0}>

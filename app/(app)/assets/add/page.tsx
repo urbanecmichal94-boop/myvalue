@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, Suspense } from 'react'
+import { useState, Suspense, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
@@ -18,7 +18,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { getAssets, saveAsset, saveTransaction, generateId } from '@/lib/storage'
+import { generateId } from '@/lib/storage'
+import { getAssets, saveAsset } from '@/lib/db/assets'
+import { saveTransaction } from '@/lib/db/transactions'
 import { useSections } from '@/lib/context/sections-context'
 import {
   CURRENCIES,
@@ -78,6 +80,25 @@ function AddAssetPageInner() {
   const [priceMode, setPriceMode] = useState<'per_unit' | 'total'>('per_unit')
   const [txCurrency, setTxCurrency] = useState<Currency>('CZK')
   const [txNotes, setTxNotes] = useState('')
+  const [historicalRate, setHistoricalRate] = useState<number | null>(null)
+  const [historicalRateDate, setHistoricalRateDate] = useState<string | null>(null)
+
+  // Načíst historický kurz při změně data nebo měny (jen pro non-CZK měny)
+  useEffect(() => {
+    if (txCurrency === 'CZK' || !txDate) { setHistoricalRate(null); return }
+    const month = txDate.slice(0, 7) + '-01'
+    fetch(`/api/currencies/seed-month?month=${month}`)
+      .then((r) => r.json())
+      .then((data: { rates: Record<string, number> }) => {
+        const czk = data.rates['CZK']
+        const cur = data.rates[txCurrency]
+        if (czk && cur) {
+          setHistoricalRate(czk / cur)
+          setHistoricalRateDate(month.slice(0, 7))
+        }
+      })
+      .catch(() => setHistoricalRate(null))
+  }, [txDate, txCurrency])
 
   const txTypes: TransactionType[] = isAuto ? ['buy', 'sell', 'dividend'] : ['update', 'buy', 'dividend']
 
@@ -115,8 +136,12 @@ function AddAssetPageInner() {
     }
 
     // Zjistit jestli toto aktivum již existuje (dle tickeru) v téže sekci
-    const existing = getAssets(selectedSectionId).find((a) => a.ticker === result.ticker)
-    setExistingAssetId(existing?.id ?? null)
+    try {
+      const existing = (await getAssets(selectedSectionId)).find((a) => a.ticker === result.ticker)
+      setExistingAssetId(existing?.id ?? null)
+    } catch {
+      setExistingAssetId(null)
+    }
 
     // Načíst aktuální cenu z API
     setCurrentPriceLoading(true)
@@ -135,7 +160,7 @@ function AddAssetPageInner() {
   }
 
   // ── Uložení ──────────────────────────────────────────────────────────────
-  function handleSave() {
+  async function handleSave() {
     if (!currentSection || !selectedSectionId) return
     if (!assetName.trim()) { toast.error(t('enterName')); return }
     if (!txPrice || isNaN(Number(txPrice))) { toast.error(t('invalidPrice')); return }
@@ -151,34 +176,39 @@ function AddAssetPageInner() {
     const assetType = TEMPLATE_ASSET_TYPE[currentSection.template]
     const assetId = existingAssetId ?? generateId()
 
-    if (!existingAssetId) {
-      saveAsset({
-        id: assetId,
-        section_id: selectedSectionId,
-        type: assetType,
-        name: assetName.trim(),
-        ticker: isAuto ? ticker || undefined : undefined,
+    try {
+      if (!existingAssetId) {
+        await saveAsset({
+          id: assetId,
+          section_id: selectedSectionId,
+          type: assetType,
+          name: assetName.trim(),
+          ticker: isAuto ? ticker || undefined : undefined,
+          currency: txCurrency,
+          commodity_unit: currentSection.template === 'commodity' ? commodityUnit : undefined,
+          commodity_form: currentSection.template === 'commodity' ? commodityForm : undefined,
+          created_at: new Date().toISOString(),
+        })
+      }
+
+      await saveTransaction({
+        id: generateId(),
+        asset_id: assetId,
+        date: txDate,
+        type: txType,
+        quantity: txType === 'update' || txType === 'dividend' ? 1 : qty,
+        price: txType === 'update' || txType === 'dividend' ? rawPrice : pricePerUnit,
         currency: txCurrency,
-        commodity_unit: currentSection.template === 'commodity' ? commodityUnit : undefined,
-        commodity_form: currentSection.template === 'commodity' ? commodityForm : undefined,
+        notes: txNotes.trim() || undefined,
         created_at: new Date().toISOString(),
       })
+
+      toast.success(existingAssetId ? t('transactionAdded', { name: assetName }) : t('assetAdded', { name: assetName }))
+      router.push(`/sections/${selectedSectionId}`)
+    } catch (err) {
+      toast.error(t('saveFailed'))
+      console.error('Save error:', err)
     }
-
-    saveTransaction({
-      id: generateId(),
-      asset_id: assetId,
-      date: txDate,
-      type: txType,
-      quantity: txType === 'update' || txType === 'dividend' ? 1 : qty,
-      price: txType === 'update' || txType === 'dividend' ? rawPrice : pricePerUnit,
-      currency: txCurrency,
-      notes: txNotes.trim() || undefined,
-      created_at: new Date().toISOString(),
-    })
-
-    toast.success(existingAssetId ? t('transactionAdded', { name: assetName }) : t('assetAdded', { name: assetName }))
-    router.push(`/sections/${selectedSectionId}`)
   }
 
   const quantityLabel = currentSection?.template === 'commodity'
@@ -288,7 +318,7 @@ function AddAssetPageInner() {
                   </div>
                   {searchLoading && <p className="text-sm text-muted-foreground">{t('searching')}</p>}
                   {searchResults.length > 0 && (
-                    <div className="border rounded-md divide-y">
+                    <div className="border rounded-md divide-y max-h-64 overflow-y-scroll">
                       {searchResults.map((r) => (
                         <button
                           key={r.ticker}
@@ -509,6 +539,12 @@ function AddAssetPageInner() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {historicalRate !== null && txCurrency !== 'CZK' && (
+                    <p className="text-xs text-muted-foreground">
+                      1 {txCurrency} = {historicalRate.toLocaleString('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} Kč
+                      <span className="ml-1 opacity-60">({historicalRateDate})</span>
+                    </p>
+                  )}
                 </div>
               </div>
 

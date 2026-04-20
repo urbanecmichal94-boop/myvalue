@@ -10,11 +10,25 @@ export const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
 // ─── Výpočetní logika ─────────────────────────────────────────────────────────
 
+// Spočítá kolik kusů bylo drženo ke konci daného měsíce (z transakcí)
+function quantityAtEndOfMonth(asset: AssetWithValue, month: string): number {
+  if (!asset.transactions || asset.transactions.length === 0) return asset.totalQuantity
+  let qty = 0
+  for (const tx of asset.transactions) {
+    if (tx.date.slice(0, 7) > month) continue
+    if (tx.type === 'buy') qty += tx.quantity
+    else if (tx.type === 'sell') qty -= tx.quantity
+  }
+  return Math.max(0, qty)
+}
+
 export function computeMonthlyValuesFromHistory(
   assets: AssetWithValue[],
   history: Record<string, Record<string, number>>,
   rates: CurrencyCache,
   displayCurrency: Currency,
+  firstPurchaseMonth?: string,
+  purchaseBasis?: number,
 ): MonthlyValues {
   const allMonths = new Set<string>()
   for (const data of Object.values(history)) {
@@ -24,6 +38,9 @@ export function computeMonthlyValuesFromHistory(
   const result: MonthlyValues = {}
 
   for (const month of allMonths) {
+    // Přeskočit měsíce před prvním nákupem
+    if (firstPurchaseMonth && month < firstPurchaseMonth) continue
+
     let total = 0
     for (const asset of assets) {
       if (!asset.ticker) continue
@@ -31,13 +48,28 @@ export function computeMonthlyValuesFromHistory(
       if (!assetHistory) continue
       const price = assetHistory[month]
       if (!price) continue
+      const qty = quantityAtEndOfMonth(asset, month)
+      if (qty <= 0) continue
       const priceInDisplay = convertToDisplay(price, asset.priceCurrency ?? 'USD', displayCurrency, rates)
-      total += asset.totalQuantity * priceInDisplay
+      total += qty * priceInDisplay
     }
     if (total > 0) result[month] = parseFloat(total.toFixed(8))
   }
 
+  // Syntetický baseline: měsíc před prvním nákupem = celkový cost basis
+  // → computeReturns pak spočítá výnos prvního měsíce od nákupní ceny
+  if (firstPurchaseMonth && purchaseBasis !== undefined && purchaseBasis > 0) {
+    const basisMonth = prevMonth(firstPurchaseMonth)
+    result[basisMonth] = parseFloat(purchaseBasis.toFixed(8))
+  }
+
   return result
+}
+
+function prevMonth(yyyyMm: string): string {
+  const [y, m] = yyyyMm.split('-').map(Number)
+  if (m === 1) return `${y - 1}-12`
+  return `${y}-${String(m - 1).padStart(2, '0')}`
 }
 
 export function computeReturns(monthlyValues: MonthlyValues): YearlyReturns {

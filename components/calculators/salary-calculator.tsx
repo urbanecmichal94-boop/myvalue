@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { makeFmtKcFull } from '@/lib/fmt-kc'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 
 // ── Konstanty CZ 2026 ──────────────────────────────────────────────────────────
@@ -116,10 +117,6 @@ function calcSalary(input: SalaryInput): SalaryResult {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function fmtKc(n: number) {
-  return Math.round(n).toLocaleString('cs-CZ') + ' Kč'
-}
-
 function fmtPct(n: number) {
   return n.toLocaleString('cs-CZ', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %'
 }
@@ -183,6 +180,8 @@ function buildDistributionBins(userGross: number) {
 
 function PercentileSection({ gross }: { gross: number }) {
   const t = useTranslations('calculators.salary')
+  const tCommon = useTranslations('common')
+  const fmtKc = makeFmtKcFull(tCommon('suffixKc'))
   const percentile = getPercentile(gross)
   const below  = parseFloat(percentile.toFixed(1))
   const above  = parseFloat((100 - percentile - 1).toFixed(1))
@@ -285,6 +284,8 @@ function Row({ label, value, highlight, note }: {
 
 export function SalaryCalculator() {
   const t = useTranslations('calculators.salary')
+  const tCommon = useTranslations('common')
+  const fmtKc = makeFmtKcFull(tCommon('suffixKc'))
   const [grossText, setGrossText] = useState('50000')
   const [isStudent, setIsStudent] = useState(false)
   const [isZtp, setIsZtp] = useState(false)
@@ -317,7 +318,7 @@ export function SalaryCalculator() {
                 onChange={(e) => setGrossText(e.target.value)}
                 className="w-full rounded-md border bg-background px-3 py-2 pr-10 text-sm outline-none focus:ring-2 focus:ring-ring"
               />
-              <span className="absolute top-1/2 right-3 -translate-y-1/2 text-xs text-muted-foreground">Kč</span>
+              <span className="absolute top-1/2 right-3 -translate-y-1/2 text-xs text-muted-foreground">{tCommon('suffixKc')}</span>
             </div>
             <input
               type="range" min={10_000} max={200_000} step={1_000}
@@ -326,7 +327,7 @@ export function SalaryCalculator() {
               className="w-full mt-2 accent-primary"
             />
             <div className="flex justify-between text-xs text-muted-foreground mt-0.5">
-              <span>10 tis.</span><span>200 tis.</span>
+              <span>{t('grossRangeMin')}</span><span>{t('grossRangeMax')}</span>
             </div>
           </div>
 
@@ -340,14 +341,14 @@ export function SalaryCalculator() {
               <input type="checkbox" checked={isStudent} onChange={(e) => setIsStudent(e.target.checked)}
                 className="rounded accent-primary" />
               <span className="text-sm">{t('creditStudent')}</span>
-              <span className="ml-auto text-xs text-muted-foreground">+335 Kč</span>
+              <span className="ml-auto text-xs text-muted-foreground">{t('creditStudentAmount')}</span>
             </label>
 
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={isZtp} onChange={(e) => setIsZtp(e.target.checked)}
                 className="rounded accent-primary" />
               <span className="text-sm">{t('creditZtp')}</span>
-              <span className="ml-auto text-xs text-muted-foreground">+1 345 Kč</span>
+              <span className="ml-auto text-xs text-muted-foreground">{t('creditZtpAmount')}</span>
             </label>
 
             <div>
@@ -394,9 +395,9 @@ export function SalaryCalculator() {
             </div>
             {children > 0 && (
               <div className="mt-2 text-xs text-muted-foreground space-y-0.5">
-                {children >= 1 && <div>1. dítě: 1 267 Kč/měs</div>}
-                {children >= 2 && <div>2. dítě: 1 860 Kč/měs</div>}
-                {children >= 3 && <div>3.+ dítě: 2 320 Kč/měs</div>}
+                {children >= 1 && <div>{t('childCredit1', { amount: fmtKc(DANOVYBONUS_DITE_1) })}</div>}
+                {children >= 2 && <div>{t('childCredit2', { amount: fmtKc(DANOVYBONUS_DITE_2) })}</div>}
+                {children >= 3 && <div>{t('childCredit3plus', { amount: fmtKc(DANOVYBONUS_DITE_3) })}</div>}
               </div>
             )}
           </div>

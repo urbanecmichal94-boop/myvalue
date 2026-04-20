@@ -74,3 +74,100 @@ export async function getMacroRows(
   if (error) throw error
   return (data ?? []) as MacroRow[]
 }
+
+// ─── Sdílená cache historických cen aktiv ─────────────────────────────────────
+
+export interface PriceHistoryRow {
+  ticker:   string   // kanonický ticker (XAU, bitcoin, AAPL…)
+  month:    string   // 'YYYY-MM'
+  price:    number
+  currency: string   // 'USD'
+}
+
+/**
+ * Načte záznamy pro dané tickery v rozsahu [fromMonth, toMonthExclusive).
+ * Výsledek je seřazený podle month ASC.
+ */
+export async function getPriceHistoryFromDb(
+  tickers: string[],
+  fromMonth: string,
+  toMonthExclusive: string,
+): Promise<PriceHistoryRow[]> {
+  if (tickers.length === 0) return []
+  const supabase = await createServerSupabaseClient()
+  const { data, error } = await supabase
+    .from('price_history')
+    .select('ticker,month,price,currency')
+    .in('ticker', tickers)
+    .gte('month', fromMonth)
+    .lt('month', toMonthExclusive)
+    .order('month', { ascending: true })
+  if (error) throw error
+  return (data ?? []) as PriceHistoryRow[]
+}
+
+/** Uloží (nebo přepíše) řádky do sdílené cache. */
+export async function upsertPriceHistoryRows(rows: PriceHistoryRow[]): Promise<void> {
+  if (rows.length === 0) return
+  const supabase = await createServerSupabaseClient()
+  const { error } = await supabase
+    .from('price_history')
+    .upsert(rows, { onConflict: 'ticker,month' })
+  if (error) throw error
+}
+
+// ─── Sdílená tabulka měsíčních kurzů ─────────────────────────────────────────
+
+export interface CurrencyRatesRow {
+  month:      string                  // 'YYYY-MM-DD' (vždy 1. den měsíce)
+  rates:      Record<string, number>  // { USD: 1.08, CAD: 1.47, ... } vůči EUR
+  fetched_at: string
+}
+
+/** Načte kurzy pro konkrétní měsíc (např. '2026-04-01'). */
+export async function getCurrencyRatesFromDb(month: string): Promise<Record<string, number> | null> {
+  try {
+    const supabase = await createServerSupabaseClient()
+    const { data, error } = await supabase
+      .from('currency_rates')
+      .select('rates')
+      .eq('month', month)
+      .single()
+    if (error || !data) return null
+    return data.rates as Record<string, number>
+  } catch {
+    return null
+  }
+}
+
+/** Uloží (nebo přepíše) kurzy pro daný měsíc. Selže tiše — kurzy jsou best-effort. */
+export async function upsertCurrencyRates(month: string, rates: Record<string, number>): Promise<void> {
+  try {
+    const supabase = await createServerSupabaseClient()
+    await supabase
+      .from('currency_rates')
+      .upsert({ month, rates, fetched_at: new Date().toISOString() }, { onConflict: 'month' })
+  } catch {
+    // Ignorujeme — kurzy jsou sdílená cache, výpadek DB aplikaci neshodí
+  }
+}
+
+/** Načte kurzy pro seznam měsíců (pro hromadné dotazy). */
+export async function getCurrencyRatesRangeFromDb(
+  fromMonth: string,
+  toMonth: string,
+): Promise<Record<string, Record<string, number>>> {
+  try {
+    const supabase = await createServerSupabaseClient()
+    const { data, error } = await supabase
+      .from('currency_rates')
+      .select('month,rates')
+      .gte('month', fromMonth)
+      .lte('month', toMonth)
+      .order('month', { ascending: true })
+    if (error || !data) return {}
+    return Object.fromEntries(data.map((r) => [r.month.slice(0, 7), r.rates as Record<string, number>]))
+  } catch {
+    return {}
+  }
+}

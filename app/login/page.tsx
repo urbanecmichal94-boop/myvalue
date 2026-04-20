@@ -79,6 +79,12 @@ export default function LoginPage() {
             </Link>
           </div>
 
+          <div className="text-center">
+            <Link href="/forgot-password" className="text-xs text-muted-foreground hover:text-foreground underline-offset-4 hover:underline">
+              {t('forgotPassword')}
+            </Link>
+          </div>
+
           <div className="mt-3 text-center">
             <Link
               href="/dashboard"

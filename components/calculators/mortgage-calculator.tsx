@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { useTranslations } from 'next-intl'
+import { makeFmtKc, makeFmtKcFull } from '@/lib/fmt-kc'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -9,15 +10,6 @@ function fmtNum(n: number) {
   return Math.round(n).toLocaleString('cs-CZ')
 }
 
-function fmtKc(n: number) {
-  return fmtNum(n) + ' Kč'
-}
-
-function fmtShort(n: number) {
-  if (n >= 1_000_000) return (n / 1_000_000).toLocaleString('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' M Kč'
-  if (n >= 1_000)     return Math.round(n / 1_000) + ' tis. Kč'
-  return fmtKc(n)
-}
 
 function parseInput(str: string) {
   return parseFloat(String(str).replace(/\s/g, '').replace(',', '.')) || 0
@@ -95,6 +87,9 @@ function Breakdown({ monthIndex, P, r, M, t }: BreakdownProps) {
 
 export function MortgageCalculator() {
   const t = useTranslations('calculators.mortgage')
+  const tCommon = useTranslations('common')
+  const fmtKc = makeFmtKcFull(tCommon('suffixKc'))
+  const fmtShort = makeFmtKc(tCommon('suffixMKc'), tCommon('suffixTisKc'), tCommon('suffixKc'))
 
   const [principal, setPrincipal] = useState(3_000_000)
   const [principalText, setPrincipalText] = useState(fmtNum(3_000_000))

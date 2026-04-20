@@ -1,6 +1,6 @@
 // ─── Základní typy ───────────────────────────────────────────────────────────
 
-export type Currency = 'CZK' | 'EUR' | 'USD'
+export type Currency = 'CZK' | 'EUR' | 'USD' | 'GBP' | 'CAD' | 'CHF' | 'AUD' | 'JPY' | 'HKD' | 'NOK' | 'SEK' | 'DKK' | 'SGD' | 'PLN'
 
 export type AssetType =
   | 'stock'       // Akcie / ETF (sjednoceno)
@@ -41,6 +41,7 @@ export interface Section {
   id: string
   name: string
   template: SectionTemplate
+  color?: string
   created_at: string
 }
 
@@ -242,7 +243,7 @@ export const TRANSACTION_TYPE_LABELS: Record<TransactionType, string> = {
 export const AUTO_ASSET_TYPES: AssetType[] = ['stock', 'etf', 'crypto', 'commodity']
 export const MANUAL_ASSET_TYPES: AssetType[] = ['real_estate', 'savings', 'pension', 'bond', 'p2p', 'custom']
 
-export const CURRENCIES: Currency[] = ['CZK', 'EUR', 'USD']
+export const CURRENCIES: Currency[] = ['CZK', 'EUR', 'USD', 'GBP', 'CAD', 'CHF', 'AUD', 'JPY', 'HKD', 'NOK', 'SEK', 'DKK', 'SGD', 'PLN']
 
 export const CURRENCY_LABELS: Record<Currency, string> = {
   CZK: 'CZK (Kč)',

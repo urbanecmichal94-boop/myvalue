@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { useTranslations } from 'next-intl'
+import { makeFmtKc, makeFmtKcFull } from '@/lib/fmt-kc'
 import {
   AreaChart, Area, LineChart, Line,
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
@@ -130,12 +131,6 @@ function calcPension(
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
-function fmtKc(n: number) {
-  if (Math.abs(n) >= 1_000_000) return (n / 1_000_000).toLocaleString('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' M Kč'
-  if (Math.abs(n) >= 1_000)     return Math.round(n / 1_000).toLocaleString('cs-CZ') + ' tis. Kč'
-  return Math.round(n).toLocaleString('cs-CZ') + ' Kč'
-}
-function fmtKcFull(n: number) { return Math.round(n).toLocaleString('cs-CZ') + ' Kč' }
 function fmtPct(n: number) { return n.toLocaleString('cs-CZ', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %' }
 
 // ── SliderField ───────────────────────────────────────────────────────────────
@@ -207,6 +202,9 @@ function CustomTooltip({ active, payload, label }: {
 // ── Hlavní komponenta ─────────────────────────────────────────────────────────
 export function PensionCalculator() {
   const t = useTranslations('calculators.pension')
+  const tCommon = useTranslations('common')
+  const fmtKc = makeFmtKc(tCommon('suffixMKc'), tCommon('suffixTisKc'), tCommon('suffixKc'))
+  const fmtKcFull = makeFmtKcFull(tCommon('suffixKc'))
   const [presetIdx, setPresetIdx] = useState(2)           // Dynamický
   const [own, setOwn]             = useState(1_700)
   const [employer, setEmployer]   = useState(340)

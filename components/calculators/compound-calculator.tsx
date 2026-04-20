@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { useTranslations } from 'next-intl'
+import { makeFmtKc, makeFmtKcFull } from '@/lib/fmt-kc'
 import {
   AreaChart, Area, LineChart, Line,
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
@@ -9,15 +10,6 @@ import {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-function fmtKc(n: number) {
-  if (n >= 1_000_000) return (n / 1_000_000).toLocaleString('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' M Kč'
-  if (n >= 1_000)     return Math.round(n / 1_000).toLocaleString('cs-CZ') + ' tis. Kč'
-  return Math.round(n).toLocaleString('cs-CZ') + ' Kč'
-}
-
-function fmtKcFull(n: number) {
-  return Math.round(n).toLocaleString('cs-CZ') + ' Kč'
-}
 
 // ── výpočet ───────────────────────────────────────────────────────────────────
 
@@ -159,6 +151,9 @@ function CustomTooltip({ active, payload, label, showB, showInflation }: {
 
 export function CompoundCalculator() {
   const t = useTranslations('calculators.compound')
+  const tCommon = useTranslations('common')
+  const fmtKc = makeFmtKc(tCommon('suffixMKc'), tCommon('suffixTisKc'), tCommon('suffixKc'))
+  const fmtKcFull = makeFmtKcFull(tCommon('suffixKc'))
   // Scénář A
   const [initial, setInitial] = useState(100_000)
   const [monthly, setMonthly] = useState(10_000)

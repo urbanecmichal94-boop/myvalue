@@ -184,7 +184,7 @@ export function Sidebar() {
             >
               <span
                 className="w-2.5 h-2.5 rounded-full shrink-0"
-                style={{ backgroundColor: TEMPLATE_COLORS[section.template] }}
+                style={{ backgroundColor: section.color ?? TEMPLATE_COLORS[section.template] }}
               />
               <span className="truncate">{section.name}</span>
             </Link>

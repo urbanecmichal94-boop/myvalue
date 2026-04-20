@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { useTranslations } from 'next-intl'
+import { makeFmtKc, makeFmtKcFull } from '@/lib/fmt-kc'
 import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, ReferenceLine,
@@ -9,14 +10,6 @@ import {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-function fmtKc(n: number) {
-  const abs = Math.abs(n)
-  const sign = n < 0 ? '−' : ''
-  if (abs >= 1_000_000) return sign + (abs / 1_000_000).toLocaleString('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' M Kč'
-  if (abs >= 1_000)     return sign + Math.round(abs / 1_000).toLocaleString('cs-CZ') + ' tis. Kč'
-  return sign + Math.round(abs).toLocaleString('cs-CZ') + ' Kč'
-}
-function fmtKcFull(n: number) { return Math.round(n).toLocaleString('cs-CZ') + ' Kč' }
 function fmtPct(n: number, dec = 2) { return n.toLocaleString('cs-CZ', { minimumFractionDigits: dec, maximumFractionDigits: dec }) + ' %' }
 
 // ── typy ─────────────────────────────────────────────────────────────────────
@@ -250,6 +243,9 @@ function CustomTooltip({ active, payload, label }: {
 
 export function InvestmentPropertyCalculator() {
   const t = useTranslations('calculators.investmentProperty')
+  const tCommon = useTranslations('common')
+  const fmtKc = makeFmtKc(tCommon('suffixMKc'), tCommon('suffixTisKc'), tCommon('suffixKc'))
+  const fmtKcFull = makeFmtKcFull(tCommon('suffixKc'))
 
   const TAX_METHODS: { key: TaxMethod; label: string; desc: string }[] = [
     { key: 'pausal',   label: t('taxMethodPausalLabel'),   desc: t('taxMethodPausalDesc') },
@@ -406,7 +402,7 @@ export function InvestmentPropertyCalculator() {
               value={managementPct} min={0} max={20} step={0.5}
               onChange={setManagementPct}
               formatDisplay={(v) => v.toLocaleString('cs-CZ', { minimumFractionDigits: 1 })}
-              note="8–12 % správa" />
+              note={t('managementNote')} />
             <SliderField label={t('labelMaintenance')} suffix="% ceny/rok"
               value={maintenancePct} min={0} max={5} step={0.1}
               onChange={setMaintenancePct}

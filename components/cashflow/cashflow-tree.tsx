@@ -24,13 +24,15 @@ import {
   getCategoryMonthly,
   getCurrentAmount,
   getMonthlyAmount,
+} from '@/lib/cashflow-storage'
+import {
   createCashflowItem,
   updateCashflowItem,
   deleteCashflowItem,
   deleteCashflowCategory,
   deleteCashflowHistoryEntry,
   saveCashflowCategory,
-} from '@/lib/cashflow-storage'
+} from '@/lib/db/cashflow'
 import {
   FREQUENCY_LABELS,
   type CashflowCategory,
@@ -96,7 +98,7 @@ export function CashflowTree({
 
   function handleDeleteItem(item: CashflowItem) {
     if (!confirm(t('confirmDeleteItem', { name: item.name }))) return
-    deleteCashflowItem(item.id)
+    deleteCashflowItem(item.id).catch(console.error)
     onDataChange()
   }
 
@@ -108,7 +110,7 @@ export function CashflowTree({
       return
     }
     if (!confirm(t('confirmDeleteCategory', { name: cat.name }))) return
-    deleteCashflowCategory(cat.id)
+    deleteCashflowCategory(cat.id).catch(console.error)
     onDataChange()
   }
 
@@ -321,7 +323,7 @@ export function CashflowTree({
           displayCurrency={displayCurrency}
           onClose={() => setDialog(null)}
           onDelete={(entryId) => {
-            deleteCashflowHistoryEntry(entryId)
+            deleteCashflowHistoryEntry(entryId).catch(console.error)
             onDataChange()
           }}
         />
@@ -392,7 +394,7 @@ function CashflowDialog({ state, displayCurrency, categories, onClose, onSave }:
         amount:     parsedAmount,
         dueDate:    dueDate || undefined,
         notes:      notes || undefined,
-      })
+      }).catch(console.error)
     } else if (state?.mode === 'edit-item') {
       if (isNaN(parsedAmount) || parsedAmount <= 0) return
       updateCashflowItem({
@@ -404,7 +406,7 @@ function CashflowDialog({ state, displayCurrency, categories, onClose, onSave }:
         newDueDate:    dueDate || undefined,
         newNotes:      notes || undefined,
         currentAmount: state.currentAmount,
-      })
+      }).catch(console.error)
     } else if (state?.mode === 'add-category') {
       const maxOrder = categories.reduce((m, c) => Math.max(m, c.order), 0)
       saveCashflowCategory({
@@ -415,9 +417,9 @@ function CashflowDialog({ state, displayCurrency, categories, onClose, onSave }:
         is_preset:  false,
         order:      maxOrder + 1,
         created_at: new Date().toISOString(),
-      })
+      }).catch(console.error)
     } else if (state?.mode === 'edit-category') {
-      saveCashflowCategory({ ...state.category, name: name.trim() })
+      saveCashflowCategory({ ...state.category, name: name.trim() }).catch(console.error)
     }
 
     onSave()

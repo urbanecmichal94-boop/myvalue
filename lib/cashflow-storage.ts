@@ -1,6 +1,7 @@
 import {
   CASHFLOW_PRESETS,
   FREQUENCY_TO_MONTHLY,
+  getPresetSuggestions,
   type CashflowCategory,
   type CashflowItem,
   type CashflowItemHistory,
@@ -100,7 +101,13 @@ export function initializeCashflow(): void {
 // ─── Kategorie ────────────────────────────────────────────────────────────────
 
 export function getCashflowCategories(): CashflowCategory[] {
-  return load<CashflowCategory[]>(KEYS.categories, [])
+  const cats = load<CashflowCategory[]>(KEYS.categories, [])
+  // Návrhy položek vždy z kódu — ne z uloženého JSONu
+  return cats.map((cat) =>
+    cat.is_preset
+      ? { ...cat, item_suggestions: getPresetSuggestions(cat.name) }
+      : cat
+  )
 }
 
 export function saveCashflowCategory(category: CashflowCategory): void {

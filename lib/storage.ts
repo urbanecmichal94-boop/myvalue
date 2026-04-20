@@ -23,8 +23,13 @@ const KEYS = {
 export interface Settings {
   displayCurrency: Currency
   showPortfolioChart: boolean
+  showAllocationChart: boolean
+  showReserveWidget: boolean
   showPerformanceWidget: boolean
-  performanceSectionIds: string[]  // prázdné pole = všechny auto sekce
+  showWinnersLosers: boolean
+  showMarketOverview: boolean
+  performanceSectionIds: string[]   // prázdné pole = všechny auto sekce
+  totalValueSectionIds: string[]    // prázdné pole = všechny sekce
 }
 
 export interface PriceCacheEntry {
@@ -101,7 +106,8 @@ function save(key: string, value: unknown): void {
 
 // ─── Nastavení ───────────────────────────────────────────────────────────────
 export function getSettings(): Settings {
-  return load<Settings>(KEYS.settings, { displayCurrency: 'CZK', showPortfolioChart: true, showPerformanceWidget: true, performanceSectionIds: [] })
+  const s = load<Partial<Settings>>(KEYS.settings, {})
+  return { displayCurrency: 'CZK', showPortfolioChart: true, showAllocationChart: true, showReserveWidget: true, showPerformanceWidget: true, showWinnersLosers: false, showMarketOverview: false, performanceSectionIds: [], totalValueSectionIds: [], ...s }
 }
 
 export function saveSettings(settings: Settings): void {

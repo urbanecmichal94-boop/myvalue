@@ -10,21 +10,11 @@ import {
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, ReferenceLine,
 } from 'recharts'
-import { getProperties, saveProperty, deleteProperty } from '@/lib/property-storage'
+import { getProperties, saveProperty, deleteProperty } from '@/lib/db/properties'
 import { generateId } from '@/lib/storage'
 import { PROPERTY_TYPE_LABELS, type Property, type PropertyValuation, type RentalRecord } from '@/types/property'
 import { PropertyForm } from '@/components/properties/property-form'
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmtKc(n: number) {
-  const abs = Math.abs(n)
-  const sign = n < 0 ? '−' : ''
-  if (abs >= 1_000_000) return sign + (abs / 1_000_000).toLocaleString('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' M Kč'
-  if (abs >= 1_000)     return sign + Math.round(abs / 1_000).toLocaleString('cs-CZ') + ' tis. Kč'
-  return sign + Math.round(abs).toLocaleString('cs-CZ') + ' Kč'
-}
-function fmtKcFull(n: number) { return Math.round(n).toLocaleString('cs-CZ') + ' Kč' }
+import { makeFmtKc, makeFmtKcFull } from '@/lib/fmt-kc'
 function fmtPct(n: number, dec = 1) {
   return (n >= 0 ? '+' : '') + n.toLocaleString('cs-CZ', { minimumFractionDigits: dec, maximumFractionDigits: dec }) + ' %'
 }
@@ -117,6 +107,8 @@ export default function PropertyDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router  = useRouter()
   const t = useTranslations('properties')
+  const fmtKc    = makeFmtKc(`${t('form.notesCzk')} M`, `tis. ${t('form.notesCzk')}`, t('form.notesCzk'))
+  const fmtKcFull = makeFmtKcFull(t('form.notesCzk'))
 
   const [property, setProperty] = useState<Property | null>(null)
   const [editing,  setEditing]  = useState(false)
@@ -150,9 +142,13 @@ export default function PropertyDetailPage() {
   const [editRentNote, setEditRentNote] = useState('')
 
   useEffect(() => {
-    const p = getProperties().find((x) => x.id === id)
-    if (p) setProperty(p)
-    else router.replace('/properties')
+    getProperties()
+      .then((list) => {
+        const p = list.find((x) => x.id === id)
+        if (p) setProperty(p)
+        else router.replace('/properties')
+      })
+      .catch(console.error)
   }, [id, router])
 
   if (!property) return null
@@ -235,7 +231,7 @@ export default function PropertyDetailPage() {
       valuationHistory: newHistory,
       updatedAt: new Date().toISOString(),
     }
-    saveProperty(updated)
+    saveProperty(updated).catch(console.error)
     setProperty(updated)
     setNewValValue('')
     setNewValNote('')
@@ -254,7 +250,7 @@ export default function PropertyDetailPage() {
       lastValuedAt: last?.date  ?? property.lastValuedAt,
       updatedAt: new Date().toISOString(),
     }
-    saveProperty(updated)
+    saveProperty(updated).catch(console.error)
     setProperty(updated)
   }
 
@@ -282,7 +278,7 @@ export default function PropertyDetailPage() {
       lastValuedAt: last.date,
       updatedAt: new Date().toISOString(),
     }
-    saveProperty(updated)
+    saveProperty(updated).catch(console.error)
     setProperty(updated)
     setEditValId(null)
   }
@@ -303,7 +299,7 @@ export default function PropertyDetailPage() {
     const newHistory = [...(property.rentalHistory ?? []), rec]
       .sort((a, b) => a.startDate.localeCompare(b.startDate))
     const updated: Property = { ...property, rentalHistory: newHistory, updatedAt: new Date().toISOString() }
-    saveProperty(updated)
+    saveProperty(updated).catch(console.error)
     setProperty(updated)
     setNewRentAmt('')
     setNewRentOpex('')
@@ -316,7 +312,7 @@ export default function PropertyDetailPage() {
     if (!property) return
     const newHistory = (property.rentalHistory ?? []).filter((r) => r.id !== rid)
     const updated: Property = { ...property, rentalHistory: newHistory, updatedAt: new Date().toISOString() }
-    saveProperty(updated)
+    saveProperty(updated).catch(console.error)
     setProperty(updated)
   }
 
@@ -344,7 +340,7 @@ export default function PropertyDetailPage() {
         : r)
       .sort((a, b) => a.startDate.localeCompare(b.startDate))
     const updated: Property = { ...property, rentalHistory: newHistory, updatedAt: new Date().toISOString() }
-    saveProperty(updated)
+    saveProperty(updated).catch(console.error)
     setProperty(updated)
     setEditRentId(null)
   }
@@ -352,7 +348,7 @@ export default function PropertyDetailPage() {
   // ── Smazání ───────────────────────────────────────────────────────────────
 
   function handleDelete() {
-    deleteProperty(id)
+    deleteProperty(id).catch(console.error)
     router.push('/properties')
   }
 
@@ -428,7 +424,7 @@ export default function PropertyDetailPage() {
           {fixDays !== null && fixDays <= 180 && (
             <div className="flex items-center gap-1.5 text-xs text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-1.5">
               <AlertTriangle className="w-3.5 h-3.5" />
-              Konec fixace za <strong>{fixDays} dní</strong> ({property.mortgage?.fixationEndDate})
+              {t('detail.fixationEndLabel', { date: property.mortgage?.fixationEndDate })} — {t('detail.fixationDaysLeft', { days: fixDays })}
             </div>
           )}
         </div>

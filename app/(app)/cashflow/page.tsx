@@ -1,18 +1,22 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Eye, EyeOff, TrendingUp, TrendingDown } from 'lucide-react'
+import { Eye, EyeOff, TrendingUp, TrendingDown, ShieldCheck } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { useSettings } from '@/lib/context/settings-context'
+import { useSections } from '@/lib/context/sections-context'
 import {
-  initializeCashflow,
-  getCashflowCategories,
-  getCashflowItems,
-  getCashflowHistory,
   getCashflowHidden,
   toggleCashflowHidden,
   getCategoryMonthly,
 } from '@/lib/cashflow-storage'
+import {
+  initializeCashflowIfEmpty,
+  getCashflowCategories,
+  getCashflowItems,
+  getCashflowHistory,
+} from '@/lib/db/cashflow'
+import { getCashSectionTotal } from '@/lib/db/cash'
 import {
   getCurrencyCache,
   type CurrencyCache,
@@ -20,9 +24,11 @@ import {
 import { formatCurrency } from '@/lib/format'
 import { CashflowTree } from '@/components/cashflow/cashflow-tree'
 import type { CashflowCategory, CashflowItem, CashflowItemHistory } from '@/types/cashflow'
+import type { Currency } from '@/types'
 
 export default function CashflowPage() {
   const { settings } = useSettings()
+  const { sections } = useSections()
   const t = useTranslations('cashflow')
 
   const [categories, setCategories] = useState<CashflowCategory[]>([])
@@ -30,17 +36,23 @@ export default function CashflowPage() {
   const [history, setHistory]       = useState<CashflowItemHistory[]>([])
   const [rates, setRates]           = useState<CurrencyCache | null>(null)
   const [hiddenIds, setHiddenIds]   = useState<string[]>([])
+  const [cashTotal, setCashTotal]   = useState<number>(0)
 
   const reload = useCallback(() => {
-    setCategories(getCashflowCategories())
-    setItems(getCashflowItems())
-    setHistory(getCashflowHistory())
+    Promise.all([
+      getCashflowCategories(),
+      getCashflowItems(),
+      getCashflowHistory(),
+    ]).then(([cats, itms, hist]) => {
+      setCategories(cats)
+      setItems(itms)
+      setHistory(hist)
+    }).catch(console.error)
     setHiddenIds(getCashflowHidden())
   }, [])
 
   useEffect(() => {
-    initializeCashflow()
-    reload()
+    initializeCashflowIfEmpty().then(() => reload()).catch(console.error)
     const cached = getCurrencyCache()
     if (cached) {
       setRates(cached)
@@ -51,6 +63,16 @@ export default function CashflowPage() {
         .catch(() => setRates({ eurCzk: 25.0, eurUsd: 1.08, rates: {}, updatedAt: new Date().toISOString() }))
     }
   }, [reload])
+
+  // Načíst celkový zůstatek z úspory sekcí
+  useEffect(() => {
+    if (!rates) return
+    const savingsSections = sections.filter((s) => s.template === 'savings')
+    if (savingsSections.length === 0) { setCashTotal(0); return }
+    Promise.all(savingsSections.map((s) => getCashSectionTotal(s.id, rates, settings.displayCurrency)))
+      .then((values) => setCashTotal(values.reduce((a, b) => a + b, 0)))
+      .catch(console.error)
+  }, [rates, sections, settings.displayCurrency])
 
   if (!rates) {
     return <div className="p-6 text-muted-foreground text-sm">{t('loading')}</div>
@@ -84,9 +106,10 @@ export default function CashflowPage() {
     .filter((c) => !isHidden(c.id))
     .reduce((s, c) => s + getMonthly(c.id), 0)
 
-  const freeCashflow = totalIncome - totalExpenses
-  const savingsRate  = totalIncome > 0 ? (freeCashflow / totalIncome) * 100 : null
-  const cfPositive   = freeCashflow >= 0
+  const freeCashflow   = totalIncome - totalExpenses
+  const savingsRate    = totalIncome > 0 ? (freeCashflow / totalIncome) * 100 : null
+  const cfPositive     = freeCashflow >= 0
+  const reserveMonths  = totalExpenses > 0 ? cashTotal / totalExpenses : null
 
   // ── Viditelné sekce pro stromy ─────────────────────────────────────────────
   const visibleExpenses = expenseTopLevel.filter((c) => !isHidden(c.id))
@@ -187,48 +210,113 @@ export default function CashflowPage() {
         </table>
       </div>
 
-      {/* ── Stromy — jen viditelné kategorie ──────────────────────────────────── */}
-      {visibleExpenses.length > 0 && (
-        <div>
-          <h2 className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wide">{t('expenses')}</h2>
-          <div className="border rounded-lg bg-card py-1">
-            <CashflowTree
-              categories={categories}
-              items={items}
-              history={history}
-              displayCurrency={settings.displayCurrency}
-              rates={rates}
-              type="expense"
-              visibleTopIds={visibleExpenses.map((c) => c.id)}
-              onDataChange={reload}
-            />
-          </div>
-        </div>
+      {/* ── Měsíční rezerva ──────────────────────────────────────────────────── */}
+      {reserveMonths !== null && settings.showReserveWidget && (
+        <ReserveCard
+          months={reserveMonths}
+          cashTotal={cashTotal}
+          monthlyExpenses={totalExpenses}
+          displayCurrency={settings.displayCurrency}
+        />
       )}
 
-      {visibleIncome.length > 0 && (
-        <div>
-          <h2 className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wide">{t('income')}</h2>
-          <div className="border rounded-lg bg-card py-1">
-            <CashflowTree
-              categories={categories}
-              items={items}
-              history={history}
-              displayCurrency={settings.displayCurrency}
-              rates={rates}
-              type="income"
-              visibleTopIds={visibleIncome.map((c) => c.id)}
-              onDataChange={reload}
-            />
-          </div>
+      {/* ── Stromy — výdaje ───────────────────────────────────────────────────── */}
+      <div>
+        <h2 className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wide">{t('expenses')}</h2>
+        <div className="border rounded-lg bg-card py-1">
+          <CashflowTree
+            categories={categories}
+            items={items}
+            history={history}
+            displayCurrency={settings.displayCurrency}
+            rates={rates}
+            type="expense"
+            visibleTopIds={visibleExpenses.map((c) => c.id)}
+            onDataChange={reload}
+          />
         </div>
-      )}
+      </div>
 
-      {visibleExpenses.length === 0 && visibleIncome.length === 0 && (
-        <p className="text-sm text-muted-foreground text-center py-8">
+      {/* ── Stromy — příjmy ────────────────────────────────────────────────────── */}
+      <div>
+        <h2 className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wide">{t('income')}</h2>
+        <div className="border rounded-lg bg-card py-1">
+          <CashflowTree
+            categories={categories}
+            items={items}
+            history={history}
+            displayCurrency={settings.displayCurrency}
+            rates={rates}
+            type="income"
+            visibleTopIds={visibleIncome.map((c) => c.id)}
+            onDataChange={reload}
+          />
+        </div>
+      </div>
+
+      {visibleExpenses.length === 0 && visibleIncome.length === 0 && categories.length > 0 && (
+        <p className="text-sm text-muted-foreground text-center py-4">
           {t('allHidden')}
         </p>
       )}
+    </div>
+  )
+}
+
+function reserveColor(months: number): string {
+  const t = Math.min(Math.max(months, 0), 6) / 6
+  // 0→3 měsíce: červená→žlutá, 3→6 měsíce: žlutá→zelená
+  const red    = [239, 68,  68]
+  const yellow = [234, 179,  8]
+  const green  = [ 34, 197, 94]
+  const [from, to, u] = t <= 0.5
+    ? [red, yellow, t / 0.5]
+    : [yellow, green, (t - 0.5) / 0.5]
+  const r = Math.round(from[0] + (to[0] - from[0]) * u)
+  const g = Math.round(from[1] + (to[1] - from[1]) * u)
+  const b = Math.round(from[2] + (to[2] - from[2]) * u)
+  return `rgb(${r},${g},${b})`
+}
+
+interface ReserveCardProps {
+  months: number
+  cashTotal: number
+  monthlyExpenses: number
+  displayCurrency: Currency
+}
+
+function ReserveCard({ months, cashTotal, monthlyExpenses, displayCurrency }: ReserveCardProps) {
+  const t = useTranslations('cashflow')
+
+  const color    = reserveColor(months)
+  const barWidth = Math.min((months / 6) * 95, 100)
+  const hintKey  = months >= 6 ? 'reserveHint_good' : months >= 3 ? 'reserveHint_ok' : 'reserveHint_low'
+
+  return (
+    <div className="border rounded-lg bg-card p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <ShieldCheck className="h-4 w-4" style={{ color }} />
+        <h2 className="text-sm font-semibold">{t('reserve')}</h2>
+      </div>
+
+      <div className="flex items-end gap-3">
+        <span className="text-4xl font-bold font-mono tabular-nums" style={{ color }}>
+          {months >= 100 ? '99+' : months.toFixed(1)}
+        </span>
+        <span className="text-muted-foreground text-sm mb-1">{t('reserveMonths')}</span>
+      </div>
+
+      {/* Progress bar — 12 měsíců = 100 % */}
+      <div className="h-2 bg-muted rounded-full overflow-hidden">
+        <div className="h-full rounded-full transition-all" style={{ width: `${barWidth}%`, backgroundColor: color }} />
+      </div>
+
+      <div className="flex justify-between text-xs text-muted-foreground">
+        <span>{t('reserveCash')}: <span className="font-mono">{formatCurrency(cashTotal, displayCurrency)}</span></span>
+        <span>{t('reserveExpenses')}: <span className="font-mono">{formatCurrency(monthlyExpenses, displayCurrency)}</span></span>
+      </div>
+
+      <p className="text-xs text-muted-foreground">{t(hintKey)}</p>
     </div>
   )
 }

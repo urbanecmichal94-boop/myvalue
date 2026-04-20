@@ -8,7 +8,7 @@ const FRANKFURTER_URL = 'https://api.frankfurter.app/latest?from=EUR'
 const FALLBACK_RATES: Record<string, number> = {
   CZK: 25.0, USD: 1.08, GBP: 0.86, CAD: 1.47, CHF: 0.97,
   JPY: 162.0, AUD: 1.66, HKD: 8.44, NOK: 11.7, SEK: 11.3,
-  DKK: 7.46, PLN: 4.27, HUF: 395.0, RON: 4.97,
+  DKK: 7.46, SGD: 1.45, PLN: 4.27, HUF: 395.0, RON: 4.97,
 }
 
 export async function GET() {

@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 // Veřejné cesty — dostupné bez přihlášení
-const PUBLIC_PATHS = ['/', '/login', '/register']
+const PUBLIC_PATHS = ['/', '/login', '/register', '/forgot-password', '/reset-password']
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -36,7 +36,9 @@ export async function proxy(request: NextRequest) {
   // Nepřihlášený uživatel mimo veřejné cesty → redirect na /login
   const isPublic = PUBLIC_PATHS.some((p) => pathname === p) ||
     pathname.startsWith('/login') ||
-    pathname.startsWith('/register')
+    pathname.startsWith('/register') ||
+    pathname.startsWith('/forgot-password') ||
+    pathname.startsWith('/reset-password')
 
   if (!user && !isPublic) {
     const loginUrl = request.nextUrl.clone()
@@ -44,8 +46,8 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  // Přihlášený uživatel na /login nebo /register → redirect na /dashboard
-  if (user && (pathname === '/login' || pathname === '/register')) {
+  // Přihlášený uživatel na /, /login nebo /register → redirect na /dashboard
+  if (user && (pathname === '/' || pathname === '/login' || pathname === '/register')) {
     const dashboardUrl = request.nextUrl.clone()
     dashboardUrl.pathname = '/dashboard'
     return NextResponse.redirect(dashboardUrl)

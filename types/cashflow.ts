@@ -75,7 +75,7 @@ export const CASHFLOW_PRESETS: PresetCategoryDef[] = [
     children: [
       {
         name: 'Pojistky',
-        itemSuggestions: ['Povinné ručení', 'Havarijní pojištění', 'Životní pojistka'],
+        itemSuggestions: ['Povinné ručení', 'Havarijní pojištění', 'Životní pojistka', 'Úrazové pojištění', 'Cestovní pojištění (roční)'],
       },
       {
         name: 'Auto',
@@ -83,23 +83,23 @@ export const CASHFLOW_PRESETS: PresetCategoryDef[] = [
       },
       {
         name: 'Předplatná & Streaming',
-        itemSuggestions: ['Spotify', 'Netflix', 'Apple TV', 'Rozhlas + TV poplatek'],
+        itemSuggestions: ['Spotify', 'Netflix', 'Apple TV', 'Disney+', 'HBO Max', 'YouTube Premium', 'Amazon Prime', 'Microsoft 365', 'ChatGPT', 'Claude', 'Rozhlas + TV poplatek'],
       },
       {
         name: 'Mobilní & Internet',
-        itemSuggestions: ['Mobilní tarif', 'Internet doma'],
+        itemSuggestions: ['Mobilní tarif', 'Mobilní tarif 2 (partner/dítě)', 'Internet doma'],
       },
       {
         name: 'Zdraví & Sport',
-        itemSuggestions: ['Gym členství', 'Permanentka', 'Pravidelné léky'],
+        itemSuggestions: ['Gym členství', 'Permanentka', 'Pravidelné léky', 'Bazén / sauna', 'Masáže (pravidelné)'],
       },
       {
         name: 'Vzdělávání',
-        itemSuggestions: ['Škola / Školka', 'Kurzy & vzdělávání'],
+        itemSuggestions: ['Škola / Školka', 'Kurzy & vzdělávání', 'Jazyková škola', 'Online platforma (Udemy, roční)', 'Audiolibrix'],
       },
       {
         name: 'Děti',
-        itemSuggestions: ['Kroužky', 'Kapesné'],
+        itemSuggestions: ['Kroužky', 'Kapesné', 'Obědy ve škole'],
       },
       {
         name: 'Finanční závazky',
@@ -183,3 +183,19 @@ export const CASHFLOW_PRESETS: PresetCategoryDef[] = [
     ],
   },
 ]
+
+// ─── Runtime lookup: návrhy vždy z kódu, ne z DB ─────────────────────────────
+
+const _suggestionsMap = new Map<string, string[]>()
+for (const preset of CASHFLOW_PRESETS) {
+  if (preset.itemSuggestions?.length) _suggestionsMap.set(preset.name, preset.itemSuggestions)
+  for (const child of preset.children ?? []) {
+    if (child.itemSuggestions?.length) _suggestionsMap.set(child.name, child.itemSuggestions)
+  }
+}
+
+/** Vrátí aktuální návrhy položek pro preset kategorii podle jména. */
+export function getPresetSuggestions(name: string): string[] | undefined {
+  const s = _suggestionsMap.get(name)
+  return s && s.length > 0 ? s : undefined
+}

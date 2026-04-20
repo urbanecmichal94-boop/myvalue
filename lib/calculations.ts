@@ -126,18 +126,23 @@ export function calculateAssetValue(
       } else if (tx.type === 'sell') {
         totalQuantity -= tx.quantity
         if (totalBuyQty > 0) {
-          // Cost basis prodaných kusů (průměrná nákupní cena × počet)
+          const txMonth = tx.date.slice(0, 7)
           const avgCostPerShare    = totalBuyCostDisplay / totalBuyQty
           const avgCostExPerShare  = totalBuyCostExchange / totalBuyQty
           const costBasis          = avgCostPerShare * tx.quantity
-          const saleProceeds       = convertCurrency(tx.price * tx.quantity, tx.currency, displayCurrency, rates)
+          const saleProceeds       = rateHistory
+            ? tx.price * tx.quantity * getHistoricalRate(tx.currency, displayCurrency, txMonth, rateHistory, rates)
+            : convertCurrency(tx.price * tx.quantity, tx.currency, displayCurrency, rates)
           realizedGainDisplay     += saleProceeds - costBasis
           totalBuyCostDisplay     -= costBasis
           totalBuyCostExchange    -= avgCostExPerShare * tx.quantity
           totalBuyQty             -= tx.quantity
         }
       } else if (tx.type === 'dividend') {
-        totalDividendsDisplay += convertCurrency(tx.price, tx.currency, displayCurrency, rates)
+        const txMonth = tx.date.slice(0, 7)
+        totalDividendsDisplay += rateHistory
+          ? tx.price * getHistoricalRate(tx.currency, displayCurrency, txMonth, rateHistory, rates)
+          : convertCurrency(tx.price, tx.currency, displayCurrency, rates)
       }
     }
 
@@ -156,7 +161,7 @@ export function calculateAssetValue(
     // Výnos = nerealizovaný (zbývající akcie) + realizovaný (prodané akcie)
     const totalReturnDisplay = (currentValueDisplay - totalInvestedDisplay) + realizedGainDisplay
     const totalReturnPct = totalEverInvestedDisplay > 0
-      ? (totalReturnDisplay / totalEverInvestedDisplay) * 100
+      ? ((totalReturnDisplay + totalDividendsDisplay) / totalEverInvestedDisplay) * 100
       : 0
 
     // Pro zobrazení: originální cena v měně burzy
@@ -214,7 +219,7 @@ export function calculateAssetValue(
 
   const totalReturnDisplay = currentValueDisplay - totalInvestedDisplay
   const totalReturnPct = totalInvestedDisplay > 0
-    ? (totalReturnDisplay / totalInvestedDisplay) * 100
+    ? ((totalReturnDisplay + totalDividendsDisplay) / totalInvestedDisplay) * 100
     : 0
 
   const isStale = lastUpdateDate
@@ -264,7 +269,7 @@ export function calculatePortfolioSummary(
   }
 
   const totalReturnPct = totalInvestedDisplay > 0
-    ? (totalReturnDisplay / totalInvestedDisplay) * 100
+    ? ((totalReturnDisplay + totalDividendsDisplay) / totalInvestedDisplay) * 100
     : 0
 
   return {
@@ -299,7 +304,7 @@ export function calculateSectionSummary(
   }
 
   const totalReturnPct = totalInvestedDisplay > 0
-    ? (totalReturnDisplay / totalInvestedDisplay) * 100
+    ? ((totalReturnDisplay + totalDividendsDisplay) / totalInvestedDisplay) * 100
     : 0
 
   return {

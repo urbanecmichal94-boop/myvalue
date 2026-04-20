@@ -2,18 +2,17 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { TrendingUp, TrendingDown, RefreshCw, Download, ArrowRight } from 'lucide-react'
+import { TrendingUp, TrendingDown, RefreshCw, Download, ArrowRight, Settings } from 'lucide-react'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useSettings } from '@/lib/context/settings-context'
 import { useSections } from '@/lib/context/sections-context'
 import {
-  getAssets,
-  getTransactions,
   getPriceCache,
   savePriceCache,
   getCurrencyCache,
@@ -25,13 +24,15 @@ import {
   getCurrencyRateHistory,
   saveCurrencyRateHistory,
   isCurrencyRateHistoryValid,
-  getSnapshots,
-  addSnapshot,
   type CurrencyCache,
   type CurrencyRateHistory,
   type PriceCacheEntry,
   type PortfolioSnapshot,
 } from '@/lib/storage'
+import { getAssets } from '@/lib/db/assets'
+import { getTransactions } from '@/lib/db/transactions'
+import { getSnapshots, addSnapshot } from '@/lib/db/snapshots'
+import { getCashSectionTotal } from '@/lib/db/cash'
 import {
   calculateAssetValue,
   calculatePortfolioSummary,
@@ -49,10 +50,25 @@ import {
 import { formatCurrency } from '@/lib/format'
 import { transactionsToCsv, downloadCsv, csvFilename } from '@/lib/csv'
 import { SnapshotChart } from '@/components/charts/snapshot-chart'
+import { AllocationChart } from '@/components/charts/allocation-chart'
+import { getCashflowCategories, getCashflowItems, getCashflowHistory } from '@/lib/db/cashflow'
+import { getCategoryMonthly } from '@/lib/cashflow-storage'
 import { DashboardPerformanceTable } from '@/components/performance/dashboard-performance-table'
+import { TradingViewMarketOverview } from '@/components/markets/tradingview-market-overview'
+
+function reserveColor(months: number): string {
+  const t = Math.min(Math.max(months, 0), 6) / 6
+  const red    = [239, 68,  68]
+  const yellow = [234, 179,  8]
+  const green  = [ 34, 197, 94]
+  const [from, to, u] = t <= 0.5
+    ? [red, yellow, t / 0.5]
+    : [yellow, green, (t - 0.5) / 0.5]
+  return `rgb(${Math.round(from[0]+(to[0]-from[0])*u)},${Math.round(from[1]+(to[1]-from[1])*u)},${Math.round(from[2]+(to[2]-from[2])*u)})`
+}
 
 export default function DashboardPage() {
-  const { settings } = useSettings()
+  const { settings, updateSettings } = useSettings()
   const { sections } = useSections()
   const t = useTranslations('dashboard')
   const tCommon = useTranslations('common')
@@ -63,17 +79,14 @@ export default function DashboardPage() {
   const [rateHistory, setRateHistory] = useState<CurrencyRateHistory | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [cashTotal, setCashTotal] = useState(0)
+  const [monthlyExpenses, setMonthlyExpenses] = useState<number | null>(null)
+  const [return12mPct, setReturn12mPct] = useState<number | null>(null)
+  const [wlPeriod, setWlPeriod] = useState<'1d' | '1m' | '6m' | '12m' | 'total'>('12m')
 
   const loadData = useCallback(async (forceRefresh = false) => {
-    const assets = getAssets()
-
-    if (assets.length === 0) {
-      setAssetsWithValues([])
-      setLoading(false)
-      return
-    }
-
-    // ── Kurzy měn ─────────────────────────────────────────────────────────
+    // ── Kurzy měn — vždy načíst (i pro cash sekce bez aktiv) ──────────────
     let currentRates: CurrencyCache
     const cachedRates = getCurrencyCache()
     if (cachedRates && isCurrencyCacheValid(cachedRates) && !forceRefresh) {
@@ -89,6 +102,15 @@ export default function DashboardPage() {
         toast.warning(t('currenciesFailed'))
       }
     }
+    setRates(currentRates)
+
+    const assets = await getAssets()
+
+    if (assets.length === 0) {
+      setAssetsWithValues([])
+      setLoading(false)
+      return
+    }
 
     // ── Historické kurzy měn (pro cost basis) ─────────────────────────────
     let rateHistory: CurrencyRateHistory | null = null
@@ -97,7 +119,7 @@ export default function DashboardPage() {
       rateHistory = cachedRateHistory
     } else {
       try {
-        const allTxs = getTransactions()
+        const allTxs = await getTransactions()
         if (allTxs.length > 0) {
           const earliest = allTxs.reduce((min, tx) => tx.date < min ? tx.date : min, allTxs[0].date)
           const fromDate = earliest.slice(0, 7) + '-01'
@@ -169,8 +191,9 @@ export default function DashboardPage() {
     if (historyChanged) savePriceHistory(history)
 
     // ── Spočítat hodnoty ──────────────────────────────────────────────────
+    const allTxsForCalc = await getTransactions()
     const result: AssetWithValue[] = assets.map((asset) => {
-      const assetTxs = getTransactions(asset.id)
+      const assetTxs = allTxsForCalc.filter((tx) => tx.asset_id === asset.id)
       const cachedEntry: PriceCacheEntry | undefined = asset.ticker ? newPriceCache[asset.ticker] : undefined
       const priceUsd = cachedEntry?.priceUsd ?? null
       const priceLocal = cachedEntry?.priceLocal ?? null
@@ -179,11 +202,10 @@ export default function DashboardPage() {
     })
 
     setAssetsWithValues(result)
-    setRates(currentRates)
     setRateHistory(rateHistory)
     setLoading(false)
     setRefreshing(false)
-    setSnapshots(getSnapshots())
+    setSnapshots(await getSnapshots())
   }, [settings.displayCurrency])  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -198,33 +220,121 @@ export default function DashboardPage() {
     if (summary.totalValueDisplay <= 0) return
     const today = new Date().toISOString().split('T')[0]
     addSnapshot({ date: today, value: summary.totalValueDisplay, currency: settings.displayCurrency })
-    setSnapshots(getSnapshots())
+      .then(() => getSnapshots())
+      .then(setSnapshots)
+      .catch(console.error)
   }, [loading, assetsWithValues, settings.displayCurrency])
+
+  // Načíst zůstatky cash/úspory sekcí (celkem i per-sekci)
+  const [cashTotalsBySectionId, setCashTotalsBySectionId] = useState<Record<string, number>>({})
+  useEffect(() => {
+    if (!rates) return
+    const savingsSections = sections.filter((s) => s.template === 'savings')
+    if (savingsSections.length === 0) { setCashTotal(0); setCashTotalsBySectionId({}); return }
+    Promise.all(savingsSections.map((s) => getCashSectionTotal(s.id, rates, settings.displayCurrency).then((v) => ({ id: s.id, v }))))
+      .then((results) => {
+        const byId: Record<string, number> = {}
+        let total = 0
+        for (const { id, v } of results) { byId[id] = v; total += v }
+        setCashTotalsBySectionId(byId)
+        setCashTotal(total)
+      })
+      .catch(console.error)
+  }, [rates, sections, settings.displayCurrency])
+
+  // Načíst měsíční výdaje z cashflow (pro výpočet rezervy)
+  useEffect(() => {
+    if (!rates) return
+    Promise.all([getCashflowCategories(), getCashflowItems(), getCashflowHistory()])
+      .then(([cats, itms, hist]) => {
+        const expenseTop = cats.filter((c) => c.parent_id === null && c.type === 'expense')
+        const total = expenseTop.reduce((s, c) => s + getCategoryMonthly(c.id, cats, itms, hist, rates, settings.displayCurrency), 0)
+        setMonthlyExpenses(total > 0 ? total : null)
+      })
+      .catch(console.error)
+  }, [rates, settings.displayCurrency])
+
+  // 12M výnos přes všechna live aktiva
+  useEffect(() => {
+    if (loading || !rates || assetsWithValues.length === 0) return
+    const totalIds = settings.totalValueSectionIds ?? []
+    const assets = totalIds.length === 0 ? assetsWithValues : assetsWithValues.filter((a) => totalIds.includes(a.section_id))
+    const priceCache = getPriceCache()
+    const liveAssets = assets.filter((a) => a.priceSource === 'live' && a.ticker && a.totalQuantity > 0)
+    if (liveAssets.length === 0) { setReturn12mPct(null); return }
+
+    const byType: Record<string, string[]> = {}
+    for (const asset of liveAssets) {
+      const section = sections.find((s) => s.id === asset.section_id)
+      const type = section ? ({ stocks: 'stock', crypto: 'crypto', commodity: 'commodity' } as Record<string, string>)[section.template] : undefined
+      if (!type) continue
+      if (!byType[type]) byType[type] = []
+      if (!byType[type].includes(asset.ticker!)) byType[type].push(asset.ticker!)
+    }
+
+    const now = new Date()
+    const from13m = new Date(now.getFullYear(), now.getMonth() - 13, 1).toISOString().split('T')[0]
+    const tomorrow = new Date(now.getTime() + 86400000).toISOString().split('T')[0]
+    const d12m = new Date(now.getFullYear(), now.getMonth() - 12, 1)
+    const date12mAgo = `${d12m.getFullYear()}-${String(d12m.getMonth() + 1).padStart(2, '0')}`
+
+    Promise.all(
+      Object.entries(byType).map(([type, tickers]) =>
+        fetch(`/api/history?tickers=${encodeURIComponent(tickers.join(','))}&from=${from13m}&to=${tomorrow}&type=${type}`)
+          .then((r) => r.json() as Promise<{ history: Record<string, Record<string, number>> }>)
+          .then((d) => d.history ?? {})
+          .catch(() => ({} as Record<string, Record<string, number>>))
+      )
+    ).then((results) => {
+      const mergedHistory = Object.assign({}, ...results)
+      let valueNow = 0, value12m = 0
+      for (const asset of liveAssets) {
+        if (!asset.ticker) continue
+        const price12m = mergedHistory[asset.ticker]?.[date12mAgo]
+        if (!price12m || price12m <= 0) continue
+        const cached = priceCache[asset.ticker]
+        if (!cached?.priceUsd) continue
+        const price12mUsd = priceToUsd(price12m, asset.priceCurrency ?? 'USD', rates)
+        value12m += price12mUsd * asset.totalQuantity
+        valueNow += cached.priceUsd * asset.totalQuantity
+      }
+      setReturn12mPct(value12m > 0 ? (valueNow - value12m) / value12m * 100 : null)
+    }).catch(() => setReturn12mPct(null))
+  }, [loading, assetsWithValues.map((a) => a.id).join(','), settings.totalValueSectionIds?.join(','), settings.displayCurrency])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRefresh = () => {
     setRefreshing(true)
     loadData(true).then(() => toast.success(t('pricesUpdated')))
   }
 
-  const handleExport = () => {
-    const assets = getAssets()
-    const transactions = getTransactions()
+  const handleExport = async () => {
+    const [assets, transactions] = await Promise.all([getAssets(), getTransactions()])
     if (transactions.length === 0) { toast.warning(t('noDataToExport')); return }
     const csv = transactionsToCsv(assets, transactions)
     downloadCsv(csv, csvFilename('portfolio'))
     toast.success(t('portfolioExported'))
   }
 
-  const summary = calculatePortfolioSummary(assetsWithValues, settings.displayCurrency)
+  const totalIds = settings.totalValueSectionIds ?? []
+  const filteredAssets = totalIds.length === 0
+    ? assetsWithValues
+    : assetsWithValues.filter((a) => totalIds.includes(a.section_id))
+  const filteredCashTotal = totalIds.length === 0
+    ? cashTotal
+    : sections.filter((s) => s.template === 'savings' && totalIds.includes(s.id))
+        .reduce((sum, s) => sum + (cashTotalsBySectionId[s.id] ?? 0), 0)
+
+  const summary = calculatePortfolioSummary(filteredAssets, settings.displayCurrency)
+  const totalNetWorth = summary.totalValueDisplay + filteredCashTotal
   const returnPositive = summary.totalReturnDisplay >= 0
 
-  const dailyChangeDisplay = assetsWithValues.reduce((s, a) => {
+  const dailyChangeDisplay = filteredAssets.reduce((s, a) => {
     if (a.dailyChangePct == null) return s
     return s + a.currentValueDisplay * (a.dailyChangePct / 100)
   }, 0)
-  const hasDailyChange = assetsWithValues.some((a) => a.dailyChangePct != null)
-  const dailyChangePct = summary.totalValueDisplay > 0 && hasDailyChange
-    ? (dailyChangeDisplay / summary.totalValueDisplay) * 100
+  const hasDailyChange = filteredAssets.some((a) => a.dailyChangePct != null)
+  const dailyChangePct = totalNetWorth > 0 && hasDailyChange
+    ? (dailyChangeDisplay / totalNetWorth) * 100
     : null
   const dailyPositive = dailyChangeDisplay >= 0
 
@@ -254,75 +364,87 @@ export default function DashboardPage() {
       {/* Hlavička */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">{t('title')}</h1>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-            {t('updatePrices')}
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleExport} disabled={loading || assetsWithValues.length === 0}>
-            <Download className="mr-2 h-4 w-4" />{tCommon('exportCsv')}
-          </Button>
-        </div>
+        <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>
+          <Settings className="mr-2 h-4 w-4" />{t('settingsBtn')}
+        </Button>
       </div>
 
       {/* Celkové shrnutí */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="sm:col-span-2">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Celková hodnota */}
+        <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground font-normal">{t('totalValue')}</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground font-normal flex items-center gap-1.5">
+              {t('totalValue')}
+              {totalIds.length > 0 && (
+                <span className="text-xs text-primary font-normal">({totalIds.length}/{sections.length})</span>
+              )}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (
-              <Skeleton className="h-9 w-48" />
+              <Skeleton className="h-8 w-36" />
             ) : (
-              <p className="text-3xl font-bold">{formatCurrency(summary.totalValueDisplay, settings.displayCurrency)}</p>
+              <p className="text-2xl font-bold">{formatCurrency(totalNetWorth, settings.displayCurrency)}</p>
             )}
           </CardContent>
         </Card>
 
+        {/* Celkový výnos */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-muted-foreground font-normal">{t('totalReturn')}</CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (
-              <Skeleton className="h-7 w-32" />
+              <Skeleton className="h-7 w-28" />
             ) : (
-              <div className="flex items-center gap-2">
-                {returnPositive
-                  ? <TrendingUp className="h-5 w-5 text-green-500" />
-                  : <TrendingDown className="h-5 w-5 text-red-500" />}
-                <div>
-                  <span className={`text-xl font-semibold ${returnPositive ? 'text-green-600' : 'text-red-600'}`}>
-                    {returnPositive ? '+' : ''}{formatCurrency(summary.totalReturnDisplay, settings.displayCurrency)}
-                  </span>
-                  <p className={`text-xs ${returnPositive ? 'text-green-600' : 'text-red-600'}`}>
-                    {returnPositive ? '+' : ''}{summary.totalReturnPct.toFixed(2)} %
-                  </p>
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  {returnPositive
+                    ? <TrendingUp className="h-4 w-4 text-green-500 shrink-0" />
+                    : <TrendingDown className="h-4 w-4 text-red-500 shrink-0" />}
+                  <div>
+                    <p className={`text-lg font-semibold leading-tight ${returnPositive ? 'text-green-600' : 'text-red-600'}`}>
+                      {returnPositive ? '+' : ''}{formatCurrency(summary.totalReturnDisplay, settings.displayCurrency)}
+                    </p>
+                    <p className={`text-xs ${returnPositive ? 'text-green-600' : 'text-red-600'}`}>
+                      {returnPositive ? '+' : ''}{summary.totalReturnPct.toFixed(2)} %
+                    </p>
+                  </div>
                 </div>
+                {return12mPct !== null && (
+                  <div className="border-t pt-1.5 flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">{t('return12m')}</span>
+                    <span className={`text-xs font-semibold tabular-nums ${return12mPct >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                      {return12mPct >= 0 ? '+' : ''}{return12mPct.toFixed(2)} %
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
         </Card>
 
+        {/* Denní změna */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-muted-foreground font-normal">{t('dailyChange')}</CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (
-              <Skeleton className="h-7 w-32" />
+              <Skeleton className="h-7 w-28" />
             ) : !hasDailyChange ? (
-              <p className="text-xl font-semibold text-muted-foreground">—</p>
+              <p className="text-lg font-semibold text-muted-foreground">—</p>
             ) : (
               <div className="flex items-center gap-2">
                 {dailyPositive
-                  ? <TrendingUp className="h-5 w-5 text-green-500" />
-                  : <TrendingDown className="h-5 w-5 text-red-500" />}
+                  ? <TrendingUp className="h-4 w-4 text-green-500 shrink-0" />
+                  : <TrendingDown className="h-4 w-4 text-red-500 shrink-0" />}
                 <div>
-                  <span className={`text-xl font-semibold ${dailyPositive ? 'text-green-600' : 'text-red-600'}`}>
+                  <p className={`text-lg font-semibold leading-tight ${dailyPositive ? 'text-green-600' : 'text-red-600'}`}>
                     {dailyPositive ? '+' : ''}{formatCurrency(dailyChangeDisplay, settings.displayCurrency)}
-                  </span>
+                  </p>
                   {dailyChangePct !== null && (
                     <p className={`text-xs ${dailyPositive ? 'text-green-600' : 'text-red-600'}`}>
                       {dailyPositive ? '+' : ''}{dailyChangePct.toFixed(2)} %
@@ -333,39 +455,161 @@ export default function DashboardPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Měsíční rezerva */}
+        {settings.showReserveWidget && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-muted-foreground font-normal">{t('reserveWidget')}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <Skeleton className="h-7 w-20" />
+              ) : monthlyExpenses !== null && filteredCashTotal > 0 ? (() => {
+                const months = filteredCashTotal / monthlyExpenses
+                const color = reserveColor(months)
+                return (
+                  <div>
+                    <p className="text-lg font-semibold leading-tight font-mono" style={{ color }}>
+                      {months >= 100 ? '99+' : months.toFixed(1)} {t('reserveMonthsShort')}
+                    </p>
+                    <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div className="h-full rounded-full" style={{ width: `${Math.min((months / 6) * 95, 100)}%`, backgroundColor: color }} />
+                    </div>
+                  </div>
+                )
+              })() : (
+                <p className="text-lg font-semibold text-muted-foreground">—</p>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
 
-      {/* Graf */}
-      {settings.showPortfolioChart && sections.length > 0 && !loading && (
-        <SnapshotChart snapshots={snapshots} displayCurrency={settings.displayCurrency} />
+      {/* Grafy */}
+      {(!loading && (settings.showPortfolioChart || settings.showAllocationChart) && totalNetWorth > 0) && (
+        <div className={settings.showPortfolioChart && settings.showAllocationChart ? 'grid grid-cols-1 lg:grid-cols-2 gap-4' : ''}>
+          {settings.showPortfolioChart && rates && filteredAssets.length > 0 && (
+            <SnapshotChart assets={filteredAssets} sections={sections} rates={rates} displayCurrency={settings.displayCurrency} />
+          )}
+          {settings.showAllocationChart && (
+            <AllocationChart
+              sections={sections}
+              assets={filteredAssets}
+              cashTotalsBySectionId={cashTotalsBySectionId}
+              displayCurrency={settings.displayCurrency}
+              totalNetWorth={totalNetWorth}
+            />
+          )}
+        </div>
       )}
+
+      {/* Nejlepší a nejhorší aktiva */}
+      {settings.showWinnersLosers && !loading && (() => {
+        const priceHist = getPriceHistory()
+        const periods = [
+          { key: '1d',    label: '1D' },
+          { key: '1m',    label: '1M' },
+          { key: '6m',    label: '6M' },
+          { key: '12m',   label: '12M' },
+          { key: 'total', label: t('periodTotal') },
+        ] as const
+
+        function getReturnPct(a: typeof filteredAssets[0]): number | null {
+          if (wlPeriod === 'total') return a.totalReturnPct
+          if (wlPeriod === '1d') return a.dailyChangePct ?? null
+          const monthsBack = wlPeriod === '1m' ? 1 : wlPeriod === '6m' ? 6 : 12
+          if (!a.ticker) return null
+          const hist = priceHist[a.ticker]
+          if (!hist) return null
+          const d = new Date()
+          d.setMonth(d.getMonth() - monthsBack)
+          const pastKey = d.toISOString().slice(0, 7)
+          const pastPrice = hist.months[pastKey]
+          if (!pastPrice || a.currentPriceExchange === 0) return null
+          return ((a.currentPriceExchange - pastPrice) / pastPrice) * 100
+        }
+
+        const fmt = (pct: number) =>
+          (pct >= 0 ? '+' : '') + pct.toLocaleString('cs-CZ', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %'
+
+        const eligible = filteredAssets.filter((a) => a.totalInvestedDisplay > 0 && a.priceSource !== 'no_price')
+        if (eligible.length === 0) return null
+
+        const withReturn = eligible
+          .map((a) => ({ a, pct: getReturnPct(a) }))
+          .filter((x): x is { a: typeof filteredAssets[0]; pct: number } => x.pct !== null)
+          .sort((x, y) => y.pct - x.pct)
+
+        const noData = withReturn.length === 0
+        const winners = withReturn.slice(0, 3)
+        const losers  = withReturn.slice(-3).reverse()
+
+        return (
+          <div className="border rounded-lg bg-card px-4 py-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">{t('winnersLosersWidget')}</p>
+              <div className="flex gap-1">
+                {periods.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => setWlPeriod(key)}
+                    className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${wlPeriod === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {noData ? (
+              <p className="text-sm text-muted-foreground py-2">{t('winnersNoData')}</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('winnersLabel')}</p>
+                  <div className="divide-y">
+                    {winners.map(({ a, pct }) => (
+                      <div key={a.id} className="flex items-center justify-between py-1.5">
+                        <span className="text-sm truncate max-w-[60%]">{a.name}</span>
+                        <span className="text-sm font-medium tabular-nums text-green-500">{fmt(pct)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{t('losersLabel')}</p>
+                  <div className="divide-y">
+                    {losers.map(({ a, pct }) => (
+                      <div key={a.id} className="flex items-center justify-between py-1.5">
+                        <span className="text-sm truncate max-w-[60%]">{a.name}</span>
+                        <span className={`text-sm font-medium tabular-nums ${pct >= 0 ? 'text-green-500' : 'text-red-400'}`}>{fmt(pct)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Tabulka výkonnosti */}
       {settings.showPerformanceWidget && !loading && rates && (() => {
         const autoSections = sections.filter((s) =>
-          ['stocks', 'crypto', 'commodity'].includes(s.template)
+          ['stocks', 'crypto', 'commodity'].includes(s.template) &&
+          (totalIds.length === 0 || totalIds.includes(s.id))
         )
-        const selectedIds = settings.performanceSectionIds ?? []
-        const activeSections = selectedIds.length === 0
-          ? autoSections
-          : autoSections.filter((s) => selectedIds.includes(s.id))
-
-        const widgetAssets = assetsWithValues.filter((a) =>
-          activeSections.some((s) => s.id === a.section_id)
+        const widgetAssets = filteredAssets.filter((a) =>
+          autoSections.some((s) => s.id === a.section_id)
         )
-
-        // Potřebujeme znát template — vezmeme nejčastější nebo první
-        // Pro dashboard použijeme smíšený typ — každé aktivum může mít jiný typ
-        // Předáme template první sekce jako fallback, ale přidáme multi-type podporu
-        const firstSection = activeSections[0]
-        if (!firstSection || widgetAssets.length === 0) return null
+        if (autoSections.length === 0 || widgetAssets.length === 0) return null
 
         return (
           <div>
             <h2 className="text-lg font-semibold mb-3">{t('performanceWidget')}</h2>
             <div className="border rounded-lg bg-card overflow-hidden">
               <DashboardPerformanceTable
-                sections={activeSections}
+                sections={autoSections}
                 assets={widgetAssets}
                 displayCurrency={settings.displayCurrency}
                 rates={rates}
@@ -374,6 +618,136 @@ export default function DashboardPage() {
           </div>
         )
       })()}
+
+      {/* TradingView Market Overview */}
+      {settings.showMarketOverview && <TradingViewMarketOverview />}
+
+      {/* Dialog nastavení dashboardu */}
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('settingsBtn')}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+
+            {/* Akce */}
+            <div className="space-y-2">
+              <Button variant="outline" className="w-full justify-start" onClick={() => { setSettingsOpen(false); handleRefresh() }} disabled={refreshing}>
+                <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+                {t('updatePrices')}
+              </Button>
+              <Button variant="outline" className="w-full justify-start" onClick={() => { setSettingsOpen(false); handleExport() }} disabled={loading || assetsWithValues.length === 0}>
+                <Download className="mr-2 h-4 w-4" />
+                {tCommon('exportCsv')}
+              </Button>
+            </div>
+
+            <div className="border-t" />
+
+            {/* Widgety */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm">{t('chartWidget')}</p>
+                <button
+                  role="switch"
+                  aria-checked={settings.showPortfolioChart}
+                  onClick={() => updateSettings({ showPortfolioChart: !settings.showPortfolioChart })}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${settings.showPortfolioChart ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${settings.showPortfolioChart ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-sm">{t('allocationWidget')}</p>
+                <button
+                  role="switch"
+                  aria-checked={settings.showAllocationChart}
+                  onClick={() => updateSettings({ showAllocationChart: !settings.showAllocationChart })}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${settings.showAllocationChart ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${settings.showAllocationChart ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-sm">{t('reserveWidget')}</p>
+                <button
+                  role="switch"
+                  aria-checked={settings.showReserveWidget}
+                  onClick={() => updateSettings({ showReserveWidget: !settings.showReserveWidget })}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${settings.showReserveWidget ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${settings.showReserveWidget ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-sm">{t('marketOverviewWidget')}</p>
+                <button
+                  role="switch"
+                  aria-checked={settings.showMarketOverview}
+                  onClick={() => updateSettings({ showMarketOverview: !settings.showMarketOverview })}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${settings.showMarketOverview ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${settings.showMarketOverview ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-sm">{t('winnersLosersWidget')}</p>
+                <button
+                  role="switch"
+                  aria-checked={settings.showWinnersLosers}
+                  onClick={() => updateSettings({ showWinnersLosers: !settings.showWinnersLosers })}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${settings.showWinnersLosers ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${settings.showWinnersLosers ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-sm">{t('performanceWidget')}</p>
+                <button
+                  role="switch"
+                  aria-checked={settings.showPerformanceWidget}
+                  onClick={() => updateSettings({ showPerformanceWidget: !settings.showPerformanceWidget })}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${settings.showPerformanceWidget ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${settings.showPerformanceWidget ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
+                </button>
+              </div>
+            </div>
+
+            <div className="border-t" />
+
+            {/* Sekce */}
+            <div className="space-y-2">
+              <p className="text-sm font-medium">{t('editTotalSections')}</p>
+              <p className="text-xs text-muted-foreground">{t('totalSectionsDesc')}</p>
+              <div className="space-y-1.5 pt-1">
+                {sections.map((s) => {
+                  const selected = settings.totalValueSectionIds ?? []
+                  const checked = selected.length === 0 || selected.includes(s.id)
+                  return (
+                    <label key={s.id} className="flex items-center gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          const current = selected.length === 0 ? sections.map((x) => x.id) : [...selected]
+                          const next = current.includes(s.id) ? current.filter((id) => id !== s.id) : [...current, s.id]
+                          updateSettings({ totalValueSectionIds: next.length === sections.length ? [] : next })
+                        }}
+                        className="h-4 w-4"
+                      />
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color ?? TEMPLATE_COLORS[s.template] }} />
+                      <span className="text-sm">{s.name}</span>
+                      <span className="text-xs text-muted-foreground ml-auto">{tEnum(`templates.${s.template}`)}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Sekce */}
       <div>
@@ -385,7 +759,7 @@ export default function DashboardPage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {sectionSummaries.map((ss) => (
-              <SectionCard key={ss.section.id} summary={ss} displayCurrency={settings.displayCurrency} />
+              <SectionCard key={ss.section.id} summary={ss} displayCurrency={settings.displayCurrency} cashValue={cashTotalsBySectionId[ss.section.id]} />
             ))}
           </div>
         )}
@@ -394,8 +768,10 @@ export default function DashboardPage() {
   )
 }
 
-function SectionCard({ summary, displayCurrency }: { summary: SectionSummary; displayCurrency: Currency }) {
+function SectionCard({ summary, displayCurrency, cashValue }: { summary: SectionSummary; displayCurrency: Currency; cashValue?: number }) {
   const { section, totalValueDisplay, totalReturnDisplay, totalReturnPct, assetCount } = summary
+  const isSavings = section.template === 'savings'
+  const displayValue = isSavings ? (cashValue ?? 0) : totalValueDisplay
   const returnPositive = totalReturnDisplay >= 0
   const t = useTranslations('dashboard')
   const tEnum = useTranslations('enums')
@@ -408,7 +784,7 @@ function SectionCard({ summary, displayCurrency }: { summary: SectionSummary; di
             <div className="flex items-center gap-2">
               <span
                 className="w-3 h-3 rounded-full shrink-0 mt-0.5"
-                style={{ backgroundColor: TEMPLATE_COLORS[section.template] }}
+                style={{ backgroundColor: section.color ?? TEMPLATE_COLORS[section.template] }}
               />
               <div>
                 <p className="font-semibold leading-tight">{section.name}</p>
@@ -419,18 +795,24 @@ function SectionCard({ summary, displayCurrency }: { summary: SectionSummary; di
           </div>
 
           <p className="text-2xl font-bold mb-1">
-            {formatCurrency(totalValueDisplay, displayCurrency)}
+            {formatCurrency(displayValue, displayCurrency)}
           </p>
 
           <div className="flex items-center justify-between">
-            <span className={`text-sm font-medium ${returnPositive ? 'text-green-600' : 'text-red-600'}`}>
-              {returnPositive ? '+' : ''}{formatCurrency(totalReturnDisplay, displayCurrency)}
-              {' '}
-              <span className="text-xs">({returnPositive ? '+' : ''}{totalReturnPct.toFixed(1)} %)</span>
-            </span>
-            <Badge variant="secondary" className="text-xs">
-              {assetCount} {assetCount === 1 ? t('assetCount_one') : assetCount < 5 ? t('assetCount_few') : t('assetCount_many')}
-            </Badge>
+            {isSavings ? (
+              <span className="text-sm text-muted-foreground">{tEnum(`templates.${section.template}`)}</span>
+            ) : (
+              <span className={`text-sm font-medium ${returnPositive ? 'text-green-600' : 'text-red-600'}`}>
+                {returnPositive ? '+' : ''}{formatCurrency(totalReturnDisplay, displayCurrency)}
+                {' '}
+                <span className="text-xs">({returnPositive ? '+' : ''}{totalReturnPct.toFixed(1)} %)</span>
+              </span>
+            )}
+            {!isSavings && (
+              <Badge variant="secondary" className="text-xs">
+                {assetCount} {assetCount === 1 ? t('assetCount_one') : assetCount < 5 ? t('assetCount_few') : t('assetCount_many')}
+              </Badge>
+            )}
           </div>
         </CardContent>
       </Card>

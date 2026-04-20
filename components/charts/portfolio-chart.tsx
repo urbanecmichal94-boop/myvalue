@@ -281,7 +281,7 @@ export function PortfolioChart({
                     if (val > maxVal) { maxVal = val; dominantId = sid }
                   }
                   const section = sections.find((s) => s.id === dominantId)
-                  const color = section ? TEMPLATE_COLORS[section.template] : '#3b82f6'
+                  const color = section ? (section.color ?? TEMPLATE_COLORS[section.template]) : '#3b82f6'
                   return <Cell key={index} fill={color} fillOpacity={0.85} />
                 })}
               </Bar>
@@ -321,7 +321,7 @@ export function PortfolioChart({
               />
               <span
                 className="w-2.5 h-2.5 rounded-full shrink-0"
-                style={{ backgroundColor: TEMPLATE_COLORS[section.template] }}
+                style={{ backgroundColor: section.color ?? TEMPLATE_COLORS[section.template] }}
               />
               <span className="text-sm truncate">{section.name}</span>
             </label>

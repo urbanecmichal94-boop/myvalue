@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { generateId } from '@/lib/storage'
-import { saveProperty } from '@/lib/property-storage'
+import { saveProperty } from '@/lib/db/properties'
 import { PROPERTY_TYPE_OPTIONS, type Property, type PropertyType, type RentalRecord } from '@/types/property'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -129,7 +129,7 @@ export function PropertyForm({ initialData, onCancel }: Props) {
     }
 
     setSaving(true)
-    saveProperty(property)
+    saveProperty(property).catch(console.error)
     router.push(`/properties/${property.id}`)
   }
 
