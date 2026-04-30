@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
-import { TrendingUp, TrendingDown, RefreshCw, Download, ArrowRight, Settings } from 'lucide-react'
+import { TrendingUp, TrendingDown, RefreshCw, Download, ArrowRight, Settings, SlidersHorizontal, Check } from 'lucide-react'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -27,12 +27,14 @@ import {
   type CurrencyCache,
   type CurrencyRateHistory,
   type PriceCacheEntry,
-  type PortfolioSnapshot,
 } from '@/lib/storage'
 import { getAssets } from '@/lib/db/assets'
 import { getTransactions } from '@/lib/db/transactions'
-import { getSnapshots, addSnapshot } from '@/lib/db/snapshots'
 import { getCashSectionTotal } from '@/lib/db/cash'
+import { getProperties } from '@/lib/db/properties'
+import type { Property } from '@/types/property'
+import { calcPropertyEquity } from '@/lib/property-utils'
+import { ensurePropertySection } from '@/lib/db/sections'
 import {
   calculateAssetValue,
   calculatePortfolioSummary,
@@ -49,8 +51,8 @@ import {
 } from '@/types'
 import { formatCurrency } from '@/lib/format'
 import { transactionsToCsv, downloadCsv, csvFilename } from '@/lib/csv'
-import { SnapshotChart } from '@/components/charts/snapshot-chart'
 import { AllocationChart } from '@/components/charts/allocation-chart'
+import { PortfolioStackedChart } from '@/components/charts/portfolio-stacked-chart'
 import { getCashflowCategories, getCashflowItems, getCashflowHistory } from '@/lib/db/cashflow'
 import { getCategoryMonthly } from '@/lib/cashflow-storage'
 import { DashboardPerformanceTable } from '@/components/performance/dashboard-performance-table'
@@ -69,21 +71,23 @@ function reserveColor(months: number): string {
 
 export default function DashboardPage() {
   const { settings, updateSettings } = useSettings()
-  const { sections } = useSections()
+  const { sections, refresh: refreshSections } = useSections()
   const t = useTranslations('dashboard')
   const tCommon = useTranslations('common')
   const tEnum = useTranslations('enums')
   const [assetsWithValues, setAssetsWithValues] = useState<AssetWithValue[]>([])
-  const [snapshots, setSnapshots] = useState<PortfolioSnapshot[]>([])
   const [rates, setRates] = useState<CurrencyCache | null>(null)
   const [rateHistory, setRateHistory] = useState<CurrencyRateHistory | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [cashTotal, setCashTotal] = useState(0)
+  const [cashTotalsBySectionId, setCashTotalsBySectionId] = useState<Record<string, number>>({})
   const [monthlyExpenses, setMonthlyExpenses] = useState<number | null>(null)
   const [return12mPct, setReturn12mPct] = useState<number | null>(null)
   const [wlPeriod, setWlPeriod] = useState<'1d' | '1m' | '6m' | '12m' | 'total'>('12m')
+  const [propertyEquity, setPropertyEquity] = useState(0)
+  const [propertiesList, setPropertiesList] = useState<Property[]>([])
 
   const loadData = useCallback(async (forceRefresh = false) => {
     // ── Kurzy měn — vždy načíst (i pro cash sekce bez aktiv) ──────────────
@@ -105,6 +109,20 @@ export default function DashboardPage() {
     setRates(currentRates)
 
     const assets = await getAssets()
+
+    // Nemovitosti — equity (hodnota − hypotéka) + zajistit property sekci
+    try {
+      const properties = await getProperties()
+      const equity = properties.reduce((sum, p) => sum + calcPropertyEquity(p), 0)
+      setPropertyEquity(equity)
+      setPropertiesList(properties)
+      if (properties.length > 0) {
+        ensurePropertySection().then(() => refreshSections()).catch(() => {})
+      }
+    } catch {
+      setPropertyEquity(0)
+      setPropertiesList([])
+    }
 
     if (assets.length === 0) {
       setAssetsWithValues([])
@@ -205,7 +223,6 @@ export default function DashboardPage() {
     setRateHistory(rateHistory)
     setLoading(false)
     setRefreshing(false)
-    setSnapshots(await getSnapshots())
   }, [settings.displayCurrency])  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -213,20 +230,7 @@ export default function DashboardPage() {
     loadData()
   }, [loadData])
 
-  // Auto-save snapshot jednou denně po načtení hodnot
-  useEffect(() => {
-    if (loading) return
-    const summary = calculatePortfolioSummary(assetsWithValues, settings.displayCurrency)
-    if (summary.totalValueDisplay <= 0) return
-    const today = new Date().toISOString().split('T')[0]
-    addSnapshot({ date: today, value: summary.totalValueDisplay, currency: settings.displayCurrency })
-      .then(() => getSnapshots())
-      .then(setSnapshots)
-      .catch(console.error)
-  }, [loading, assetsWithValues, settings.displayCurrency])
-
   // Načíst zůstatky cash/úspory sekcí (celkem i per-sekci)
-  const [cashTotalsBySectionId, setCashTotalsBySectionId] = useState<Record<string, number>>({})
   useEffect(() => {
     if (!rates) return
     const savingsSections = sections.filter((s) => s.template === 'savings')
@@ -316,6 +320,8 @@ export default function DashboardPage() {
   }
 
   const totalIds = settings.totalValueSectionIds ?? []
+  const propertySectionId = sections.find((s) => s.template === 'property')?.id
+  const filteredSections = totalIds.length === 0 ? sections : sections.filter((s) => totalIds.includes(s.id))
   const filteredAssets = totalIds.length === 0
     ? assetsWithValues
     : assetsWithValues.filter((a) => totalIds.includes(a.section_id))
@@ -323,9 +329,12 @@ export default function DashboardPage() {
     ? cashTotal
     : sections.filter((s) => s.template === 'savings' && totalIds.includes(s.id))
         .reduce((sum, s) => sum + (cashTotalsBySectionId[s.id] ?? 0), 0)
+  const propertyIncluded = totalIds.length === 0 || (propertySectionId ? totalIds.includes(propertySectionId) : false)
+  const filteredProperties = propertyIncluded ? propertiesList : []
 
   const summary = calculatePortfolioSummary(filteredAssets, settings.displayCurrency)
   const totalNetWorth = summary.totalValueDisplay + filteredCashTotal
+    + (propertyIncluded && settings.includePropertiesInDashboard ? propertyEquity : 0)
   const returnPositive = summary.totalReturnDisplay >= 0
 
   const dailyChangeDisplay = filteredAssets.reduce((s, a) => {
@@ -338,12 +347,30 @@ export default function DashboardPage() {
     : null
   const dailyPositive = dailyChangeDisplay >= 0
 
-  const sectionSummaries: SectionSummary[] = sections.map((section) =>
+  const [sectionFilterOpen, setSectionFilterOpen] = useState(false)
+  const sectionFilterRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (sectionFilterRef.current && !sectionFilterRef.current.contains(e.target as Node)) {
+        setSectionFilterOpen(false)
+      }
+    }
+    if (sectionFilterOpen) document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [sectionFilterOpen])
+
+  const nonPropertySections = sections.filter((s) => s.template !== 'property')
+  const sectionValueOverrides: Record<string, number> = propertySectionId && settings.includePropertiesInDashboard
+    ? { [propertySectionId]: propertyEquity }
+    : {}
+
+  const sectionSummaries: SectionSummary[] = nonPropertySections.map((section) =>
     calculateSectionSummary(section, assetsWithValues)
   )
 
   // ── Prázdný stav ─────────────────────────────────────────────────────────
-  if (!loading && sections.length === 0) {
+  if (!loading && nonPropertySections.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-6 p-8">
         <div className="text-center space-y-2">
@@ -372,13 +399,57 @@ export default function DashboardPage() {
       {/* Celkové shrnutí */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Celková hodnota */}
-        <Card>
+        <Card className="overflow-visible">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground font-normal flex items-center gap-1.5">
-              {t('totalValue')}
-              {totalIds.length > 0 && (
-                <span className="text-xs text-primary font-normal">({totalIds.length}/{sections.length})</span>
-              )}
+            <CardTitle className="text-sm text-muted-foreground font-normal flex items-center justify-between">
+              <span>{t('totalValue')}</span>
+              <div className="relative" ref={sectionFilterRef}>
+                <button
+                  onClick={() => setSectionFilterOpen((o) => !o)}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors ${sectionFilterOpen ? 'bg-primary/10 text-primary' : 'hover:bg-muted text-muted-foreground hover:text-foreground'}`}
+                >
+                  <SlidersHorizontal className="h-3 w-3" />
+                  {totalIds.length > 0 && totalIds.length < sections.length && (
+                    <span className="text-primary font-medium">{totalIds.length}/{sections.length}</span>
+                  )}
+                </button>
+                {sectionFilterOpen && (
+                  <div className="absolute right-0 top-full mt-1 z-50 bg-card border rounded-lg shadow-lg py-1.5 min-w-[180px]">
+                    <button
+                      onClick={() => updateSettings({ totalValueSectionIds: [] })}
+                      className="w-full flex items-center gap-2.5 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors border-b mb-1 pb-2"
+                    >
+                      <Check className="h-3 w-3 shrink-0" />
+                      <span>{t('selectAll')}</span>
+                    </button>
+                    {sections.map((s) => {
+                      const selected = totalIds.length === 0 ? true : totalIds.includes(s.id)
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => {
+                            const current = totalIds.length === 0
+                              ? sections.map((x) => x.id)
+                              : [...totalIds]
+                            const next = current.includes(s.id)
+                              ? current.filter((id) => id !== s.id)
+                              : [...current, s.id]
+                            updateSettings({ totalValueSectionIds: next.length === sections.length ? [] : next })
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors"
+                        >
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: s.color ?? TEMPLATE_COLORS[s.template] }} />
+                          <span className={`flex-1 text-left truncate ${selected ? '' : 'text-muted-foreground'}`}>{s.name}</span>
+                          {selected
+                            ? <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+                            : <span className="h-3.5 w-3.5 shrink-0" />
+                          }
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -487,18 +558,23 @@ export default function DashboardPage() {
       </div>
 
       {/* Grafy */}
-      {(!loading && (settings.showPortfolioChart || settings.showAllocationChart) && totalNetWorth > 0) && (
-        <div className={settings.showPortfolioChart && settings.showAllocationChart ? 'grid grid-cols-1 lg:grid-cols-2 gap-4' : ''}>
-          {settings.showPortfolioChart && rates && filteredAssets.length > 0 && (
-            <SnapshotChart assets={filteredAssets} sections={sections} rates={rates} displayCurrency={settings.displayCurrency} />
-          )}
+      {!loading && totalNetWorth > 0 && (
+        <div className={settings.showAllocationChart ? 'grid grid-cols-1 lg:grid-cols-2 gap-4' : ''}>
+          <PortfolioStackedChart
+            assets={filteredAssets}
+            sections={filteredSections}
+            rates={rates!}
+            displayCurrency={settings.displayCurrency}
+            properties={filteredProperties}
+          />
           {settings.showAllocationChart && (
             <AllocationChart
-              sections={sections}
+              sections={filteredSections}
               assets={filteredAssets}
               cashTotalsBySectionId={cashTotalsBySectionId}
               displayCurrency={settings.displayCurrency}
               totalNetWorth={totalNetWorth}
+              sectionValueOverrides={sectionValueOverrides}
             />
           )}
         </div>
@@ -647,17 +723,6 @@ export default function DashboardPage() {
             {/* Widgety */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-sm">{t('chartWidget')}</p>
-                <button
-                  role="switch"
-                  aria-checked={settings.showPortfolioChart}
-                  onClick={() => updateSettings({ showPortfolioChart: !settings.showPortfolioChart })}
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${settings.showPortfolioChart ? 'bg-primary' : 'bg-muted-foreground/30'}`}
-                >
-                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${settings.showPortfolioChart ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
-                </button>
-              </div>
-              <div className="flex items-center justify-between">
                 <p className="text-sm">{t('allocationWidget')}</p>
                 <button
                   role="switch"
@@ -712,38 +777,19 @@ export default function DashboardPage() {
                   <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${settings.showPerformanceWidget ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
                 </button>
               </div>
-            </div>
-
-            <div className="border-t" />
-
-            {/* Sekce */}
-            <div className="space-y-2">
-              <p className="text-sm font-medium">{t('editTotalSections')}</p>
-              <p className="text-xs text-muted-foreground">{t('totalSectionsDesc')}</p>
-              <div className="space-y-1.5 pt-1">
-                {sections.map((s) => {
-                  const selected = settings.totalValueSectionIds ?? []
-                  const checked = selected.length === 0 || selected.includes(s.id)
-                  return (
-                    <label key={s.id} className="flex items-center gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => {
-                          const current = selected.length === 0 ? sections.map((x) => x.id) : [...selected]
-                          const next = current.includes(s.id) ? current.filter((id) => id !== s.id) : [...current, s.id]
-                          updateSettings({ totalValueSectionIds: next.length === sections.length ? [] : next })
-                        }}
-                        className="h-4 w-4"
-                      />
-                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color ?? TEMPLATE_COLORS[s.template] }} />
-                      <span className="text-sm">{s.name}</span>
-                      <span className="text-xs text-muted-foreground ml-auto">{tEnum(`templates.${s.template}`)}</span>
-                    </label>
-                  )
-                })}
+              <div className="flex items-center justify-between">
+                <p className="text-sm">{t('includePropertiesWidget')}</p>
+                <button
+                  role="switch"
+                  aria-checked={settings.includePropertiesInDashboard}
+                  onClick={() => updateSettings({ includePropertiesInDashboard: !settings.includePropertiesInDashboard })}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${settings.includePropertiesInDashboard ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${settings.includePropertiesInDashboard ? 'translate-x-4.5' : 'translate-x-0.5'}`} />
+                </button>
               </div>
             </div>
+
 
           </div>
         </DialogContent>

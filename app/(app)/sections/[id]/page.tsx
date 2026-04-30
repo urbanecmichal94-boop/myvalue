@@ -45,6 +45,7 @@ import { PerformanceTable } from '@/components/performance/performance-table'
 import { DividendTable } from '@/components/dividends/dividend-table'
 import { TaxOverview } from '@/components/taxes/tax-overview'
 import { CashSection } from '@/components/cash/cash-section'
+import { SectionBarChart } from '@/components/charts/section-bar-chart'
 
 const TEMPLATE_TO_HISTORY_TYPE: Partial<Record<SectionTemplate, string>> = {
   stocks:    'stock',
@@ -292,6 +293,13 @@ export default function SectionPage() {
     }
   }, [section, loadData, loadMeta])
 
+  // Property sekce → přesměrovat na modul nemovitostí
+  useEffect(() => {
+    if (section?.template === 'property') {
+      router.replace('/properties')
+    }
+  }, [section, router])
+
   // Sekce nenalezena → přesměrovat
   useEffect(() => {
     if (!loading && sections.length > 0 && !section) {
@@ -483,12 +491,20 @@ export default function SectionPage() {
 
       {/* Cash/úspory sekce */}
       {section.template === 'savings' && rates && (
-        <CashSection
-          sectionId={id}
-          displayCurrency={settings.displayCurrency}
-          rates={rates}
-          sectionColor={section.color ?? TEMPLATE_COLORS[section.template]}
-        />
+        <>
+          <SectionBarChart
+            assets={assetsWithValues}
+            section={section}
+            rates={rates}
+            displayCurrency={settings.displayCurrency}
+          />
+          <CashSection
+            sectionId={id}
+            displayCurrency={settings.displayCurrency}
+            rates={rates}
+            sectionColor={section.color ?? TEMPLATE_COLORS[section.template]}
+          />
+        </>
       )}
       {section.template === 'savings' && !rates && (
         <div className="space-y-2">
@@ -572,6 +588,16 @@ export default function SectionPage() {
             </Card>
           )}
         </div>
+      )}
+
+      {/* Sloupcový graf vývoje — ne-savings sekce */}
+      {section.template !== 'savings' && rates && (
+        <SectionBarChart
+          assets={assetsWithValues}
+          section={section}
+          rates={rates}
+          displayCurrency={settings.displayCurrency}
+        />
       )}
 
       {/* Záložky — jen pro ne-savings sekce */}

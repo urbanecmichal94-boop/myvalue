@@ -1,11 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { Plus, Building2, Home, MapPin, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { getProperties } from '@/lib/db/properties'
+import { ensurePropertySection } from '@/lib/db/sections'
+import { useSections } from '@/lib/context/sections-context'
 import { PROPERTY_TYPE_LABELS, type Property } from '@/types/property'
+import { TEMPLATE_COLORS } from '@/types'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -151,13 +154,42 @@ function PropertyCard({ p }: { p: Property }) {
 
 // ── Stránka ───────────────────────────────────────────────────────────────────
 
+const SECTION_COLORS = [
+  '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7',
+  '#ec4899', '#ef4444', '#f97316', '#f59e0b',
+  '#22c55e', '#10b981', '#14b8a6', '#06b6d4',
+  '#6b7280', '#1f2937',
+]
+
 export default function PropertiesPage() {
   const t = useTranslations('properties')
+  const { sections, saveSection, refresh: refreshSections } = useSections()
   const [properties, setProperties] = useState<Property[]>([])
+  const [colorPickerOpen, setColorPickerOpen] = useState(false)
+  const colorPickerRef = useRef<HTMLDivElement>(null)
+
+  const propertySection = sections.find((s) => s.template === 'property')
+  const sectionColor = propertySection?.color ?? TEMPLATE_COLORS['property']
 
   useEffect(() => {
+    if (!colorPickerOpen) return
+    function handleOutside(e: MouseEvent) {
+      if (!colorPickerRef.current?.contains(e.target as Node)) setColorPickerOpen(false)
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [colorPickerOpen])
+
+  function handleColorChange(color: string) {
+    if (!propertySection) return
+    saveSection({ ...propertySection, color })
+    setColorPickerOpen(false)
+  }
+
+  useEffect(() => {
+    ensurePropertySection().then(() => refreshSections()).catch(() => {})
     getProperties().then(setProperties).catch(console.error)
-  }, [])
+  }, [refreshSections])
 
   const totalValue    = properties.reduce((s, p) => s + p.currentValue, 0)
   const totalInvested = properties.reduce((s, p) => s + p.purchasePrice + p.purchaseCosts, 0)
@@ -189,11 +221,34 @@ export default function PropertiesPage() {
   return (
     <div className="p-6 max-w-5xl">
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Building2 className="w-6 h-6" /> {t('title')}
-          </h1>
-          <p className="text-muted-foreground mt-1">{t('subtitle')}</p>
+        <div className="flex items-center gap-3">
+          <div ref={colorPickerRef} className="relative shrink-0">
+            <button
+              onClick={() => setColorPickerOpen((o) => !o)}
+              className="w-4 h-4 rounded-full hover:ring-2 hover:ring-offset-1 hover:ring-ring transition-shadow focus:outline-none mt-1"
+              style={{ backgroundColor: sectionColor }}
+            />
+            {colorPickerOpen && (
+              <div className="absolute left-0 top-6 z-50 rounded-lg border bg-popover p-2.5 shadow-md">
+                <div className="grid grid-cols-7 gap-1.5">
+                  {SECTION_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => handleColorChange(c)}
+                      className="w-5 h-5 rounded-full hover:ring-2 hover:ring-offset-1 hover:ring-ring transition-shadow focus:outline-none"
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Building2 className="w-6 h-6" /> {t('title')}
+            </h1>
+            <p className="text-muted-foreground mt-1">{t('subtitle')}</p>
+          </div>
         </div>
         <Link href="/properties/add"
           className="inline-flex items-center gap-2 rounded-md bg-primary text-primary-foreground px-4 py-2 text-sm font-medium hover:bg-primary/90 transition-colors">

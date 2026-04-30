@@ -18,7 +18,8 @@ function toSettings(row: Record<string, unknown>): Settings {
     showReserveWidget:       (row.show_reserve_widget as boolean) ?? true,
     showPerformanceWidget:   row.show_performance_widget as boolean,
     showWinnersLosers:       (row.show_winners_losers as boolean) ?? false,
-    showMarketOverview:      (row.show_market_overview as boolean) ?? false,
+    showMarketOverview:           (row.show_market_overview as boolean) ?? false,
+    includePropertiesInDashboard: (row.include_properties_in_dashboard as boolean) ?? true,
     performanceSectionIds:   (row.performance_section_ids as string[]) ?? [],
     totalValueSectionIds:    (row.total_value_section_ids as string[]) ?? [],
   }
@@ -33,7 +34,8 @@ function toDbSettings(settings: Settings, userId: string) {
     show_reserve_widget:         settings.showReserveWidget,
     show_performance_widget:     settings.showPerformanceWidget,
     show_winners_losers:         settings.showWinnersLosers,
-    show_market_overview:        settings.showMarketOverview,
+    show_market_overview:              settings.showMarketOverview,
+    include_properties_in_dashboard:   settings.includePropertiesInDashboard,
     performance_section_ids:     settings.performanceSectionIds,
     total_value_section_ids:     settings.totalValueSectionIds,
   }

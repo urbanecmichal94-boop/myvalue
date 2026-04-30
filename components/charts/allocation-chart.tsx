@@ -15,6 +15,7 @@ interface AllocationChartProps {
   cashTotalsBySectionId: Record<string, number>
   displayCurrency: Currency
   totalNetWorth: number
+  sectionValueOverrides?: Record<string, number>
 }
 
 interface SliceData {
@@ -25,7 +26,7 @@ interface SliceData {
 }
 
 export function AllocationChart({
-  sections, assets, cashTotalsBySectionId, displayCurrency, totalNetWorth,
+  sections, assets, cashTotalsBySectionId, displayCurrency, totalNetWorth, sectionValueOverrides,
 }: AllocationChartProps) {
   const t = useTranslations('allocationChart')
 
@@ -35,9 +36,12 @@ export function AllocationChart({
     return sections
       .map((section) => {
         const isSavings = section.template === 'savings'
-        const value = isSavings
-          ? (cashTotalsBySectionId[section.id] ?? 0)
-          : assets.filter((a) => a.section_id === section.id).reduce((s, a) => s + a.currentValueDisplay, 0)
+        const override = sectionValueOverrides?.[section.id]
+        const value = override !== undefined
+          ? override
+          : isSavings
+            ? (cashTotalsBySectionId[section.id] ?? 0)
+            : assets.filter((a) => a.section_id === section.id).reduce((s, a) => s + a.currentValueDisplay, 0)
         return {
           name: section.name,
           value,
@@ -47,7 +51,7 @@ export function AllocationChart({
       })
       .filter((d) => d.value > 0)
       .sort((a, b) => b.value - a.value)
-  }, [sections, assets, cashTotalsBySectionId, totalNetWorth])
+  }, [sections, assets, cashTotalsBySectionId, totalNetWorth, sectionValueOverrides])
 
   function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: SliceData }> }) {
     if (!active || !payload?.length) return null

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { generateId } from '@/lib/storage'
 import { saveProperty } from '@/lib/db/properties'
-import { PROPERTY_TYPE_OPTIONS, type Property, type PropertyType, type RentalRecord } from '@/types/property'
+import { PROPERTY_TYPE_OPTIONS, PROPERTY_PURPOSE_LABELS, type Property, type PropertyType, type PropertyPurpose, type RentalRecord } from '@/types/property'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -63,9 +63,15 @@ export function PropertyForm({ initialData, onCancel }: Props) {
   const [mortDrawdownComplete,  setMortDrawdownComplete]  = useState(initialData?.mortgage?.drawdownCompleteDate ?? '')
   const [mortFixationEnd,       setMortFixationEnd]       = useState(initialData?.mortgage?.fixationEndDate      ?? '')
 
+  // Účel nemovitosti
+  const [purpose, setPurpose] = useState<PropertyPurpose>(initialData?.purpose ?? 'rental')
+
+  // Vlastní bydlení
+  const [estimatedRent,    setEstimatedRent]    = useState(String(initialData?.estimatedRent    ?? ''))
+  const [rentIncreaseRate, setRentIncreaseRate] = useState(String(initialData?.rentIncreaseRate ?? '4'))
+
   // Pronájem — první/aktuální záznam (při editaci z posledního záznamu)
   const lastRental = initialData?.rentalHistory?.[initialData.rentalHistory.length - 1]
-  const [isRental,      setIsRental]      = useState(initialData?.isRental ?? false)
   const [rentMonthly,   setRentMonthly]   = useState(String(lastRental?.rentMonthly  ?? initialData?.rentMonthly  ?? ''))
   const [occupancyPct,  setOccupancyPct]  = useState(String(lastRental?.occupancyPct ?? initialData?.occupancyPct ?? '95'))
   const [opexMonthly,   setOpexMonthly]   = useState(String(lastRental?.opexMonthly  ?? initialData?.opexMonthly  ?? ''))
@@ -105,8 +111,11 @@ export function PropertyForm({ initialData, onCancel }: Props) {
         drawdownCompleteDate:  mortDrawdownComplete || undefined,
         fixationEndDate:       mortFixationEnd      || undefined,
       } : undefined,
-      isRental,
-      rentalHistory: isRental ? (() => {
+      purpose,
+      isRental: purpose === 'rental',
+      estimatedRent:    purpose === 'own' && estimatedRent ? parseNum(estimatedRent) : undefined,
+      rentIncreaseRate: purpose === 'own' ? (parseNum(rentIncreaseRate) || 4) : undefined,
+      rentalHistory: purpose === 'rental' ? (() => {
         // Při editaci: aktualizuj nebo přidej záznam pouze pokud se hodnoty změnily
         const existing = initialData?.rentalHistory ?? []
         const newRecord: RentalRecord = {
@@ -122,6 +131,7 @@ export function PropertyForm({ initialData, onCancel }: Props) {
         }
         return [newRecord]
       })() : [],
+
       valuationHistory: initialData?.valuationHistory ?? [],
       notes: notes.trim() || undefined,
       createdAt: initialData?.createdAt ?? now,
@@ -254,19 +264,41 @@ export function PropertyForm({ initialData, onCancel }: Props) {
             )}
           </div>
 
-          {/* Pronájem */}
+          {/* Účel nemovitosti */}
           <div className="rounded-lg border bg-card p-5 space-y-4">
-            <div className="flex items-center gap-3">
-              <input type="checkbox" id="isRental" checked={isRental}
-                onChange={(e) => setIsRental(e.target.checked)}
-                className="w-4 h-4 accent-primary cursor-pointer" />
-              <label htmlFor="isRental" className="font-semibold text-base cursor-pointer select-none">
-                {t('form.isRental')}
-              </label>
+            <h3 className="font-semibold text-base">{t('form.purposeLabel')}</h3>
+            <div className="grid grid-cols-2 gap-2">
+              {(Object.entries(PROPERTY_PURPOSE_LABELS) as [PropertyPurpose, string][]).map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setPurpose(val)}
+                  className={`rounded-md border px-3 py-2.5 text-sm font-medium text-left transition-colors ${purpose === val ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'}`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
-            {isRental && (
-              <div className="space-y-3">
+            {/* Vlastní bydlení — porovnání s nájmem */}
+            {purpose === 'own' && (
+              <div className="space-y-3 pt-1 border-t">
+                <p className="text-xs text-muted-foreground pt-2">{t('form.ownHomePurposeHint')}</p>
+                <Field label={t('form.estimatedRent')} note={t('form.notesCzkMes')}>
+                  <input className={inputCls} inputMode="numeric" value={estimatedRent}
+                    onChange={(e) => setEstimatedRent(e.target.value)}
+                    placeholder={t('form.estimatedRentPlaceholder')} />
+                </Field>
+                <Field label={t('form.rentIncreaseRate')} note={t('form.notesPercent')}>
+                  <input className={inputCls} inputMode="decimal" value={rentIncreaseRate}
+                    onChange={(e) => setRentIncreaseRate(e.target.value)} placeholder="4" />
+                </Field>
+              </div>
+            )}
+
+            {/* Investiční — pronájem */}
+            {purpose === 'rental' && (
+              <div className="space-y-3 pt-1 border-t">
                 <Field label={t('form.rentalValidFrom')}>
                   <input type="date" className={inputCls} value={rentalStartDate}
                     onChange={(e) => setRentalStartDate(e.target.value)} />

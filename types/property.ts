@@ -2,6 +2,13 @@
 
 export type PropertyType = 'byt' | 'dum' | 'pozemek' | 'komercni' | 'garaz' | 'jine'
 
+export type PropertyPurpose = 'own' | 'rental'
+
+export const PROPERTY_PURPOSE_LABELS: Record<PropertyPurpose, string> = {
+  own:    'Vlastní bydlení',
+  rental: 'Investiční / pronájem',
+}
+
 export const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = {
   byt:      'Byt',
   dum:      'Dům',
@@ -66,8 +73,15 @@ export interface Property {
   // Hypotéka (volitelná)
   mortgage?: PropertyMortgage
 
+  // Účel nemovitosti
+  purpose:    PropertyPurpose  // 'own' | 'rental'
+  isRental:   boolean          // computed from purpose for compatibility
+
+  // Vlastní bydlení — porovnání s nájmem
+  estimatedRent?:    number   // odhadovaný měsíční nájem při koupi (Kč/měs)
+  rentIncreaseRate?: number   // roční nárůst nájmu % (default 4)
+
   // Pronájem (volitelný)
-  isRental:       boolean
   rentalHistory:  RentalRecord[]   // záznamy pronájmu seřazené dle startDate
   // Zpětná kompatibilita — deprecated, přesunuto do rentalHistory
   rentMonthly?:   number

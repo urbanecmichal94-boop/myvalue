@@ -920,6 +920,103 @@ export default function PropertyDetailPage() {
         )}
       </div>
 
+      {/* ── Analýza vlastního bydlení ── */}
+      {property.purpose === 'own' && property.estimatedRent != null && property.estimatedRent > 0 && (() => {
+        const g = (property.rentIncreaseRate ?? 4) / 100
+        const M = amort?.M ?? 0
+        const termYears = mort?.termYears ?? 30
+        const purchaseYear = new Date(property.purchaseDate).getFullYear()
+        const now = new Date()
+        const nowYearFrac = now.getFullYear() + now.getMonth() / 12
+        const r0 = property.estimatedRent
+
+        // Yearly data points: 0 → termYears
+        const points = Array.from({ length: termYears + 1 }, (_, y) => {
+          const cumRent = g === 0
+            ? r0 * 12 * y
+            : r0 * 12 * (Math.pow(1 + g, y) - 1) / g
+          const cumOwn = property.purchaseCosts + M * 12 * y
+          return {
+            year: purchaseYear + y,
+            cumulativeRent: Math.round(cumRent),
+            cumulativeOwn:  Math.round(cumOwn),
+          }
+        })
+
+        // Break-even: first year where cumRent > cumOwn
+        const breakEvenYear = points.find((p) => p.cumulativeRent > p.cumulativeOwn)?.year ?? null
+
+        // Current stats (interpolated)
+        const yearsElapsed = nowYearFrac - purchaseYear
+        const cumRentNow = yearsElapsed <= 0 ? 0
+          : g === 0 ? r0 * 12 * yearsElapsed
+          : r0 * 12 * (Math.pow(1 + g, yearsElapsed) - 1) / g
+        const cumOwnNow  = property.purchaseCosts + M * 12 * yearsElapsed
+        const diff       = cumRentNow - cumOwnNow
+
+        // Current monthly rent (grown since purchase)
+        const currentRentMonthly = Math.round(r0 * Math.pow(1 + g, Math.max(0, yearsElapsed)))
+
+        return (
+          <div className="rounded-lg border bg-card p-5 space-y-4">
+            <div className="flex items-start justify-between gap-2">
+              <h2 className="font-semibold text-base">{t('detail.ownAnalysisTitle')}</h2>
+              <span className="text-xs text-muted-foreground">{t('detail.ownAnalysisHint')}</span>
+            </div>
+
+            {/* Summary stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="rounded-md bg-muted/50 p-3">
+                <p className="text-muted-foreground">{t('detail.ownStatsPaidOwn')}</p>
+                <p className="font-bold text-base mt-0.5">{fmtKc(cumOwnNow)}</p>
+              </div>
+              <div className="rounded-md bg-muted/50 p-3">
+                <p className="text-muted-foreground">{t('detail.ownStatsPaidRent')}</p>
+                <p className="font-bold text-base mt-0.5">{fmtKc(cumRentNow)}</p>
+              </div>
+              <div className={`rounded-md p-3 border ${diff >= 0 ? 'bg-green-500/10 border-green-500/20' : 'bg-red-400/10 border-red-400/20'}`}>
+                <p className="text-muted-foreground">{diff >= 0 ? t('detail.ownStatsSaving') : t('detail.ownStatsOverpay')}</p>
+                <p className={`font-bold text-base mt-0.5 ${diff >= 0 ? 'text-green-500' : 'text-red-400'}`}>
+                  {diff >= 0 ? '+' : ''}{fmtKc(diff)}
+                </p>
+              </div>
+              <div className="rounded-md bg-muted/50 p-3">
+                <p className="text-muted-foreground">{t('detail.ownStatsCurrentRent')}</p>
+                <p className="font-bold text-base mt-0.5">{fmtKcFull(currentRentMonthly)}<span className="text-muted-foreground font-normal">/měs</span></p>
+                {breakEvenYear && <p className="text-[10px] text-muted-foreground mt-0.5">{t('detail.ownBreakEven', { year: breakEvenYear })}</p>}
+              </div>
+            </div>
+
+            {/* Graf */}
+            <div>
+              <p className="text-xs text-muted-foreground mb-3">{t('detail.ownChartNote', { rate: property.rentIncreaseRate ?? 4 })}</p>
+              <ResponsiveContainer width="100%" height={240}>
+                <LineChart data={points} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
+                  <XAxis dataKey="year" tick={{ fontSize: 11 }} interval={Math.ceil(termYears / 8)} />
+                  <YAxis tick={{ fontSize: 11 }}
+                    tickFormatter={(v) => v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)} M` : `${Math.round(v / 1_000)}k`}
+                    width={60} />
+                  <Tooltip
+                    formatter={(v: unknown, name: string) => [fmtKcFull(Number(v)), name] as [string, string]}
+                    contentStyle={{ fontSize: 11 }}
+                    labelFormatter={(l) => `${l}`}
+                  />
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+                  <ReferenceLine x={Math.round(nowYearFrac)} stroke="#6b7280" strokeDasharray="3 3"
+                    label={{ value: t('detail.chartLabelToday'), fontSize: 10, fill: '#6b7280' }} />
+                  {breakEvenYear && (
+                    <ReferenceLine x={breakEvenYear} stroke="#22c55e" strokeDasharray="4 4"
+                      label={{ value: t('detail.ownBreakEvenLabel'), fontSize: 10, fill: '#22c55e', position: 'top' }} />
+                  )}
+                  <Line type="monotone" dataKey="cumulativeRent" name={t('detail.ownLineRent')} stroke="#f97316" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="cumulativeOwn"  name={t('detail.ownLineOwn')}  stroke="#3b82f6" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Poznámky */}
       {property.notes && (
         <div className="rounded-lg border bg-card p-5">

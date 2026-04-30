@@ -28,6 +28,7 @@ export interface Settings {
   showPerformanceWidget: boolean
   showWinnersLosers: boolean
   showMarketOverview: boolean
+  includePropertiesInDashboard: boolean
   performanceSectionIds: string[]   // prázdné pole = všechny auto sekce
   totalValueSectionIds: string[]    // prázdné pole = všechny sekce
 }
@@ -107,7 +108,7 @@ function save(key: string, value: unknown): void {
 // ─── Nastavení ───────────────────────────────────────────────────────────────
 export function getSettings(): Settings {
   const s = load<Partial<Settings>>(KEYS.settings, {})
-  return { displayCurrency: 'CZK', showPortfolioChart: true, showAllocationChart: true, showReserveWidget: true, showPerformanceWidget: true, showWinnersLosers: false, showMarketOverview: false, performanceSectionIds: [], totalValueSectionIds: [], ...s }
+  return { displayCurrency: 'CZK', showPortfolioChart: true, showAllocationChart: true, showReserveWidget: true, showPerformanceWidget: true, showWinnersLosers: false, showMarketOverview: false, includePropertiesInDashboard: true, performanceSectionIds: [], totalValueSectionIds: [], ...s }
 }
 
 export function saveSettings(settings: Settings): void {

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { LayoutDashboard, Plus, Settings, Wallet, BarChart2, Calculator, Building2, TrendingUp, LogOut } from 'lucide-react'
+import { LayoutDashboard, Plus, Settings, Wallet, BarChart2, Calculator, TrendingUp, LogOut } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import { useSections } from '@/lib/context/sections-context'
@@ -120,20 +120,6 @@ export function Sidebar() {
           {t('calculators')}
         </Link>
 
-        {/* Nemovitosti */}
-        <Link
-          href="/properties"
-          className={cn(
-            'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-            pathname === '/properties' || pathname.startsWith('/properties/')
-              ? 'bg-primary text-primary-foreground'
-              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-          )}
-        >
-          <Building2 className="h-4 w-4 shrink-0" />
-          {t('properties')}
-        </Link>
-
         {/* Trhy */}
         <Link
           href="/markets"
@@ -170,11 +156,15 @@ export function Sidebar() {
         )}
 
         {sections.map((section) => {
-          const isActive = pathname === `/sections/${section.id}` || pathname.startsWith(`/sections/${section.id}/`)
+          const isProperty = section.template === 'property'
+          const href = isProperty ? '/properties' : `/sections/${section.id}`
+          const isActive = isProperty
+            ? pathname === '/properties' || pathname.startsWith('/properties/')
+            : pathname === `/sections/${section.id}` || pathname.startsWith(`/sections/${section.id}/`)
           return (
             <Link
               key={section.id}
-              href={`/sections/${section.id}`}
+              href={href}
               className={cn(
                 'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
                 isActive

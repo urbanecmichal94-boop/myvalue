@@ -30,12 +30,13 @@ export type SectionTemplate =
   | 'stocks'       // Akcie + ETF (auto ceny Yahoo Finance)
   | 'crypto'       // Krypto (auto ceny CoinGecko)
   | 'commodity'    // Komodity (auto ceny Yahoo futures)
-  | 'real_estate'  // Nemovitosti (manuální)
+  | 'real_estate'  // Nemovitosti jako aktiva (manuální)
   | 'savings'      // Úspory (manuální)
   | 'pension'      // Penzijko (manuální)
   | 'bond'         // Dluhopisy (manuální)
   | 'p2p'          // P2P (manuální)
   | 'custom'       // Vlastní (manuální)
+  | 'property'     // Modul nemovitostí (speciální — nepřidává aktiva)
 
 export interface Section {
   id: string
@@ -53,7 +54,6 @@ export const SECTION_PRESETS: Array<{ name: string; template: SectionTemplate }>
   { name: 'ETFs',              template: 'stocks'      },
   { name: 'Krypto',            template: 'crypto'      },
   { name: 'Komodity',          template: 'commodity'   },
-  { name: 'Nemovitosti',       template: 'real_estate' },
   { name: 'Úspory',            template: 'savings'     },
   { name: 'Penzijko',          template: 'pension'     },
   { name: 'Dluhopisy',         template: 'bond'        },
@@ -70,6 +70,7 @@ export const TEMPLATE_LABELS: Record<SectionTemplate, string> = {
   bond:        'Dluhopisy',
   p2p:         'P2P',
   custom:      'Vlastní',
+  property:    'Nemovitosti',
 }
 
 export const TEMPLATE_COLORS: Record<SectionTemplate, string> = {
@@ -82,6 +83,7 @@ export const TEMPLATE_COLORS: Record<SectionTemplate, string> = {
   bond:        '#14b8a6',
   p2p:         '#f97316',
   custom:      '#6b7280',
+  property:    '#f97316',
 }
 
 // Zda sekce používá automatické ceny z API
@@ -95,6 +97,7 @@ export const TEMPLATE_IS_AUTO: Record<SectionTemplate, boolean> = {
   bond:        false,
   p2p:         false,
   custom:      false,
+  property:    false,
 }
 
 // Výchozí AssetType při přidávání do sekce
@@ -108,6 +111,7 @@ export const TEMPLATE_ASSET_TYPE: Record<SectionTemplate, AssetType> = {
   bond:        'bond',
   p2p:         'p2p',
   custom:      'custom',
+  property:    'real_estate',
 }
 
 // Typ dotazu na search API dle šablony

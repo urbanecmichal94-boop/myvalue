@@ -3,6 +3,7 @@ import {
   getSections as localGet,
   saveSection as localSave,
   deleteSection as localDelete,
+  generateId,
 } from '@/lib/storage'
 import { getDbClient } from './client'
 
@@ -44,6 +45,20 @@ export async function saveSection(section: Section): Promise<void> {
     return
   }
   localSave(section)
+}
+
+export async function ensurePropertySection(): Promise<Section> {
+  const all = await getSections()
+  const existing = all.find((s) => s.template === 'property')
+  if (existing) return existing
+  const section: Section = {
+    id: generateId(),
+    name: 'Nemovitosti',
+    template: 'property',
+    created_at: new Date().toISOString(),
+  }
+  await saveSection(section)
+  return section
 }
 
 export async function deleteSection(id: string): Promise<void> {

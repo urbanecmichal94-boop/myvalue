@@ -20,6 +20,7 @@ const DEFAULT_SETTINGS: Settings = {
   showPerformanceWidget: true,
   showWinnersLosers: false,
   showMarketOverview: false,
+  includePropertiesInDashboard: true,
   performanceSectionIds: [],
   totalValueSectionIds: [],
 }

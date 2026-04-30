@@ -7,6 +7,7 @@ import {
   getSections,
   saveSection as dbSaveSection,
   deleteSection as dbDeleteSection,
+  ensurePropertySection,
 } from '@/lib/db/sections'
 
 interface SectionsContextValue {
@@ -32,8 +33,13 @@ export function SectionsProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     migrateOrphanedAssets()
-    refresh()
-  }, [refresh])
+    // Load sections immediately — never block on ensurePropertySection
+    getSections().then(setSections).catch(console.error)
+    // Ensure property section exists; reload on success, silently ignore failures
+    ensurePropertySection()
+      .then(() => getSections().then(setSections))
+      .catch(console.error)
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveSection = useCallback((section: Section) => {
     // Optimistický update — UI se změní okamžitě

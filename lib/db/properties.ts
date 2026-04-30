@@ -1,4 +1,4 @@
-import type { Property } from '@/types/property'
+import type { Property, PropertyPurpose } from '@/types/property'
 import {
   getProperties as localGet,
   saveProperty as localSave,
@@ -20,7 +20,10 @@ function toProperty(row: Record<string, unknown>): Property {
     currentValue:     Number(row.current_value),
     lastValuedAt:     row.last_valued_at as string,
     mortgage:         row.mortgage as Property['mortgage'],
-    isRental:         row.is_rental as boolean,
+    purpose:          ((row.purpose as string | undefined) ?? (row.is_rental ? 'rental' : 'own')) as PropertyPurpose,
+    isRental:         (row.purpose === 'rental') || (row.is_rental as boolean),
+    estimatedRent:    row.estimated_rent != null ? Number(row.estimated_rent) : undefined,
+    rentIncreaseRate: row.rent_increase_rate != null ? Number(row.rent_increase_rate) : 4,
     rentalHistory:    (row.rental_history as Property['rentalHistory']) ?? [],
     valuationHistory: (row.valuation_history as Property['valuationHistory']) ?? [],
     notes:            row.notes as string | undefined,
@@ -42,7 +45,10 @@ function toDbProperty(p: Property, userId: string) {
     current_value:     p.currentValue,
     last_valued_at:    p.lastValuedAt,
     mortgage:          p.mortgage ?? null,
-    is_rental:         p.isRental,
+    purpose:           p.purpose,
+    is_rental:         p.purpose === 'rental',
+    estimated_rent:    p.estimatedRent ?? null,
+    rent_increase_rate: p.rentIncreaseRate ?? 4,
     rental_history:    p.rentalHistory,
     valuation_history: p.valuationHistory,
     notes:             p.notes ?? null,

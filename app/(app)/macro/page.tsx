@@ -4,9 +4,12 @@ import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { MacroTickerBar } from '@/components/macro/macro-ticker-bar'
 import { MacroGrid } from '@/components/macro/macro-grid'
-import { TvEconomicCalendar } from '@/components/charts/tradingview-widgets'
+import { MacroPerspective } from '@/components/macro/macro-perspective'
+import { MacroCzMakro } from '@/components/macro/macro-cz-makro'
+import { MacroCzNemovitosti } from '@/components/macro/macro-cz-nemovitosti'
+import { MacroAssets } from '@/components/macro/macro-assets'
 
-type Tab = 'overview' | 'calendar'
+type Tab = 'overview' | 'perspective' | 'cz' | 'assets'
 
 export default function MacroPage() {
   const t = useTranslations('macro')
@@ -14,18 +17,18 @@ export default function MacroPage() {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'overview', label: t('tabOverview') },
-    { id: 'calendar', label: t('tabCalendar') },
+    { id: 'perspective', label: t('tabPerspective') },
+    { id: 'cz', label: t('tabCz') },
+    { id: 'assets', label: t('tabAssets') },
   ]
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      {/* Nadpis */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight">{t('title')}</h1>
         <p className="text-sm text-muted-foreground mt-1">{t('subtitle')}</p>
       </div>
 
-      {/* Záložky */}
       <div className="flex gap-1 border-b">
         {tabs.map((tab) => (
           <button
@@ -41,7 +44,6 @@ export default function MacroPage() {
         ))}
       </div>
 
-      {/* Přehled */}
       {activeTab === 'overview' && (
         <>
           <MacroTickerBar />
@@ -49,10 +51,23 @@ export default function MacroPage() {
         </>
       )}
 
-      {/* Ekonomický kalendář */}
-      {activeTab === 'calendar' && (
-        <TvEconomicCalendar theme="dark" />
+      {activeTab === 'perspective' && <MacroPerspective />}
+
+      {activeTab === 'cz' && (
+        <div className="flex flex-col gap-8">
+          <section className="flex flex-col gap-4">
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{t('sectionMacro')}</span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+            <MacroCzMakro />
+          </section>
+
+          <MacroCzNemovitosti />
+        </div>
       )}
+
+      {activeTab === 'assets' && <MacroAssets />}
     </div>
   )
 }
